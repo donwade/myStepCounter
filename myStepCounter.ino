@@ -11,7 +11,8 @@
 // Strength of the calibration operation;
 // 0: disables calibration.
 // 1 is weakest and 255 is strongest.
-static constexpr const uint8_t calib_value = 64;
+
+static constexpr const uint8_t calDepth = 64;
 
 
 // This sample code performs calibration by clicking on a button or screen.
@@ -54,7 +55,7 @@ static constexpr const uint32_t color_tbl[18] =
 };
 static constexpr const float coefficient_tbl[3] = { 0.5f, (1.0f / 256.0f), (1.0f / 1024.0f) };
 
-static auto &dsp = (M5.Display);
+static auto &display = (M5.Display);
 static rect_t rect_graph_area;
 static rect_t rect_text_area;
 
@@ -67,7 +68,7 @@ void drawBar(int32_t ox, int32_t oy, int32_t nx, int32_t px, int32_t h, uint32_t
 
     if (px && ((nx < 0) != (px < 0)))
     {
-        dsp.fillRect(ox, oy, px, h, bgcolor);
+        display.fillRect(ox, oy, px, h, bgcolor);
         px = 0;
     }
 
@@ -76,8 +77,8 @@ void drawBar(int32_t ox, int32_t oy, int32_t nx, int32_t px, int32_t h, uint32_t
         if ((nx > px) != (nx < 0))
             bgcolor = color;
 
-        dsp.setColor(bgcolor);
-        dsp.fillRect(nx + ox, oy, px - nx, h);
+        display.setColor(bgcolor);
+        display.fillRect(nx + ox, oy, px - nx, h);
     }
 }
 
@@ -92,7 +93,7 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
     int h = (r.h / 18) * (calib_countdown ? 1 : 2);
     int bar_count = 9 * (calib_countdown ? 2 : 1);
 
-    dsp.startWrite();
+    display.startWrite();
 
     for (int index = 0; index < bar_count; ++index)
     {
@@ -123,28 +124,35 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
         drawBar(ox, oy + h * index, nx, px, h - 1, color_tbl[index]);
     }
 
-    dsp.endWrite();
+    display.endWrite();
 }
 
 
-void updateCalibration(uint32_t bStartCal, bool clear = false)
+void updateCalibration(uint32_t bStartCal, bool bTurnOnOrOff = false)
 {
     calib_countdown = bStartCal;
 
+	static uint32_t stopwatch;
+	
     if (bStartCal == 0)
-        clear = true;
+        bTurnOnOrOff = true;
 
-    if (clear)
+    if (bTurnOnOrOff)
     {
         memset(prev_xpos, 0, sizeof(prev_xpos));
-        dsp.fillScreen(TFT_BLACK);
+        display.fillScreen(TFT_BLACK);
 
         if (bStartCal)
         { 
+        	M5.Speaker.tone(2000, 300);
+        	delay(1000);
+        	
         	// Start calibration.
-
-            M5.Imu.setCalibration(calib_value, calib_value, calib_value);
-            
+			Serial.printf("start calibration ... depth = %d of 255\n", calDepth);
+			
+            M5.Imu.setCalibration(calDepth, calDepth, calDepth);
+          	stopwatch = millis();
+          	
             // ※ The actual calibration operation is performed each time during M5.Imu.update.
             //
             // There are three arguments, which can be specified in the order of Accelerometer, gyro, and geomagnetic.
@@ -160,10 +168,15 @@ void updateCalibration(uint32_t bStartCal, bool clear = false)
         else
         { 
         	// Stop calibration. (Continue calibration only for the geomagnetic sensor)
+        	M5.Speaker.tone(2000, 200);
+        	delay(200);
+        	M5.Speaker.tone(1000, 200);
+
+ 			Serial.printf("stop  calibration ... depth = %d of 255 time = %d mS\n", calDepth, millis()-stopwatch);
                                      
             M5.Imu.setCalibration(0, //accel
             					  0, //gyro
-            					  calib_value //mag
+            					  calDepth //mag
             					  );
 
             // If you want to stop all calibration, write this.
@@ -178,13 +191,15 @@ void updateCalibration(uint32_t bStartCal, bool clear = false)
     }
 
     auto backcolor = (bStartCal == 0) ? TFT_BLACK : TFT_BLUE;
-    dsp.fillRect(rect_text_area.x, rect_text_area.y, rect_text_area.w, rect_text_area.h, backcolor);
+    display.fillRect(rect_text_area.x, rect_text_area.y, rect_text_area.w, rect_text_area.h, backcolor);
 
     if (bStartCal)
     {
-        dsp.setCursor(rect_text_area.x + 2, rect_text_area.y + 1);
-        dsp.setTextColor(TFT_WHITE, TFT_BLUE);
-        dsp.printf("Countdown:%d ", bStartCal);
+        display.setCursor(rect_text_area.x + 2, rect_text_area.y + 1);
+        display.setTextColor(TFT_WHITE, TFT_BLUE);
+        display.printf("Countdown:%d ", bStartCal);
+
+		M5.Speaker.tone(900, 100);
     }
 }
 
@@ -200,28 +215,31 @@ void setup(void)
     auto cfg = M5.config();
 
     // If you want to use external IMU, write this
-//cfg.external_imu = true;
+	//cfg.external_imu = true;
 
     M5.begin(cfg);
-
+	Serial.begin(115200);
+    delay(2000);
+    Serial.println("sssssssssssssssssssssssssssssssssssssssssssssssss");
+    
     const char *name;
     auto imu_type = M5.Imu.getType();
 
     switch (imu_type)
     {
-    case m5::imu_none:        name = "not found";   break;
+	    case m5::imu_none:        name = "not found";   break;
 
-    case m5::imu_sh200q:      name = "sh200q";      break;
+	    case m5::imu_sh200q:      name = "sh200q";      break;
 
-    case m5::imu_mpu6050:     name = "mpu6050";     break;
+	    case m5::imu_mpu6050:     name = "mpu6050";     break;
 
-    case m5::imu_mpu6886:     name = "mpu6886";     break;
+	    case m5::imu_mpu6886:     name = "mpu6886";     break;
 
-    case m5::imu_mpu9250:     name = "mpu9250";     break;
+	    case m5::imu_mpu9250:     name = "mpu9250";     break;
 
-    case m5::imu_bmi270:      name = "bmi270";      break;
+	    case m5::imu_bmi270:      name = "bmi270";      break;
 
-    default:                  name = "unknown";     break;
+	    default:                  name = "unknown";     break;
     }
 
     ;
@@ -234,20 +252,23 @@ void setup(void)
             delay(1);
     }
 
-    int32_t w = dsp.width();
-    int32_t h = dsp.height();
+    int32_t w = display.width();
+    int32_t h = display.height();
 
     if (w < h)
     {
-        dsp.setRotation(dsp.getRotation() ^ 1);
-        w = dsp.width();
-        h = dsp.height();
+        display.setRotation(display.getRotation() ^ 1);
+        w = display.width();
+        h = display.height();
     }
 
     int32_t graph_area_h = ((h - 8) / 18) * 18;
     int32_t text_area_h = h - graph_area_h;
     float fontsize = text_area_h / 8;
-    dsp.setTextSize(fontsize);
+
+    Serial.printf("graph height=%d text height = %d\n", graph_area_h, text_area_h);
+    
+    display.setTextSize(fontsize);
 
     rect_graph_area = { 0, 0, w, graph_area_h };
     rect_text_area = { 0, graph_area_h, w, text_area_h };
