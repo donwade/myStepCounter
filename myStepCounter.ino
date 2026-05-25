@@ -85,9 +85,10 @@ void drawBar(int32_t ox, int32_t oy, int32_t nx, int32_t px, int32_t h, uint32_t
 
 void drawGraph(const rect_t& r, const m5::imu_data_t& data)
 {
-    float aw = (128 * r.w) >> 1;
-    float gw = (128 * r.w) / 256.0f;
-    float mw = (128 * r.w) / 1024.0f;
+    //float aw = (128 * r.w) >> 1;
+    //float gw = (128 * r.w) / 256.0f;
+    //float mw = (128 * r.w) / 1024.0f;
+    
     int ox = (r.x + r.w) >> 1;
     int oy = r.y;
     int h = (r.h / 18) * (calib_countdown ? 1 : 2);
@@ -95,6 +96,8 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
 
     display.startWrite();
 
+	//Serial.printf("bar_count = %d\n", bar_count);
+	
     for (int index = 0; index < bar_count; ++index)
     {
         float xval;
@@ -106,6 +109,7 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
         }
         else
         {
+        	// 
             xval = M5.Imu.getOffsetData(index - 9) * (1.0f / (1 << 19));
         }
 
@@ -176,7 +180,7 @@ void updateCalibration(uint32_t bStartCal, bool bTurnOnOrOff = false)
                                      
             M5.Imu.setCalibration(0, //accel
             					  0, //gyro
-            					  calDepth //mag
+            					  0  //calDepth
             					  );
 
             // If you want to stop all calibration, write this.
@@ -186,6 +190,7 @@ void updateCalibration(uint32_t bStartCal, bool bTurnOnOrOff = false)
             //						 );
 
             // save calibration values.
+            
             M5.Imu.saveOffsetToNVS();
         }
     }
