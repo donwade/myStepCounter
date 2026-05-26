@@ -8,6 +8,10 @@
 // Include this to enable the M5 global instance.
 #include <M5Unified.h>
 
+#include <MahonyAHRS.h>
+Mahony filter;
+
+
 // Strength of the calibration operation;
 // 0: disables calibration.
 // 1 is weakest and 255 is strongest.
@@ -38,8 +42,8 @@ static constexpr const uint8_t calDepth = 64;
 
 struct rect_t
 {
-    int32_t x;
-    int32_t y;
+    int32_t across;
+    int32_t down;
     int32_t w;
     int32_t h;
 };
@@ -62,23 +66,26 @@ static rect_t rect_text_area;
 static uint8_t calib_countdown = 0;
 
 static int prev_xpos[18];
-void drawBar(int32_t ox, int32_t oy, int32_t nx, int32_t px, int32_t h, uint32_t color)
+void drawBar(int32_t topLeftX, int32_t topLeftY, int32_t offsetX, int32_t width, int32_t heigth, uint32_t color)
 {
     uint32_t bgcolor = (color >> 3) & 0x1F1F1Fu;
 
-    if (px && ((nx < 0) != (px < 0)))
+    if (width && ((offsetX < 0) != (width < 0)))
     {
-        display.fillRect(ox, oy, px, h, bgcolor);
-        px = 0;
+    	// a bar from left edge to the middle of display
+        display.fillRect(topLeftX, topLeftY, width, heigth, bgcolor);
+        width = 0;
     }
 
-    if (px != nx)
+    if (width != offsetX)
     {
-        if ((nx > px) != (nx < 0))
+    	// a bar from middle of display towards right edge of specifed width
+        if ((offsetX > width) != (offsetX < 0))
             bgcolor = color;
 
         display.setColor(bgcolor);
-        display.fillRect(nx + ox, oy, px - nx, h);
+        //               |<-right edge X-->|         |<- draw leftwards->|
+        display.fillRect(offsetX + topLeftX, topLeftY, width - offsetX  , heigth);
     }
 }
 
@@ -89,9 +96,10 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
     //float gw = (128 * r.w) / 256.0f;
     //float mw = (128 * r.w) / 1024.0f;
     
-    int ox = (r.x + r.w) >> 1;
-    int oy = r.y;
-    int h = (r.h / 18) * (calib_countdown ? 1 : 2);
+    int topLeftX = (r.across + r.w) >> 1;
+    int topLeftY = r.down;
+    int heightY = (r.h / 18) * (calib_countdown ? 1 : 2);
+    
     int bar_count = 9 * (calib_countdown ? 2 : 1);
 
     display.startWrite();
@@ -119,18 +127,56 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
         // The smaller the value, the larger the amount of change in the graph.
 		//  float tmp = sqrtf(fabsf(xval * 128)) * (signbit(xval) ? -1 : 1);
 
-        int nx = tmp;
-        int px = prev_xpos[index];
+        int offsetX = tmp;
+        int widthX = prev_xpos[index];
 
-        if (nx != px)
-            prev_xpos[index] = nx;
+        if (offsetX != widthX)
+            prev_xpos[index] = offsetX;
 
-        drawBar(ox, oy + h * index, nx, px, h - 1, color_tbl[index]);
+        drawBar(topLeftX, 
+        		topLeftY + heightY * index, 
+        		offsetX, 
+        		widthX, 
+        		heightY - 1, 
+        		color_tbl[index]);
     }
 
     display.endWrite();
 }
 
+//---------------------------------------------------------------------
+inline float  DEGREES(float x) { return (x * 180. / 3.14159);}
+
+void runMahony(float fGx,float fGy, float fGz)
+{
+  int ax, ay, az;
+  int gx, gy, gz;
+
+  float roll, pitch, yaw;
+
+  // Update the Mahony filter, with scaled gyroscope
+  float gyroScale =  1;  // TODO: the filter updates too fast
+  filter.updateIMU(DEGREES(fGx * gyroScale),
+  				   DEGREES(fGy * gyroScale),
+  				   DEGREES(fGz * gyroScale),
+  				   ax, ay, az);
+
+  static uint32_t ticker;
+  if (millis() > ticker)
+  {
+    ticker = millis() + 1000;
+    // print the yaw, pitch and roll
+    roll = filter.getRoll();
+    pitch = filter.getPitch();
+    yaw = filter.getYaw();
+    Serial.printf("yaw = %+5.1f pitch = %+5.1f roll = %+5.1f\n", yaw, pitch, roll);
+  }
+
+} 
+ 
+//---------------------------------------------------------------------
+//---------------------------------------------------------------------
+//---------------------------------------------------------------------
 
 void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
 {
@@ -199,11 +245,11 @@ void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
     }
 
     auto backcolor = (uCalCount == 0) ? TFT_BLACK : TFT_BLUE;
-    display.fillRect(rect_text_area.x, rect_text_area.y, rect_text_area.w, rect_text_area.h, backcolor);
+    display.fillRect(rect_text_area.across, rect_text_area.down, rect_text_area.w, rect_text_area.h, backcolor);
 
     if (uCalCount)
     {
-        display.setCursor(rect_text_area.x + 2, rect_text_area.y + 1);
+        display.setCursor(rect_text_area.across + 2, rect_text_area.down + 1);
         display.setTextColor(TFT_WHITE, TFT_BLUE);
         display.printf("Countdown:%d ", uCalCount);
 
@@ -250,14 +296,13 @@ void setup(void)
 	    default:                  name = "unknown";     break;
     }
 
-    ;
-    M5_LOGI("imu:%s", name);
-    M5.Display.printf("imu:%s", name);
-
     if (imu_type == m5::imu_none)
     {
         for (;;)
-            delay(1);
+        {
+        	Serial.print('.');
+            delay(1000);
+        }
     }
 
     int32_t w = display.width();
@@ -282,6 +327,10 @@ void setup(void)
     rect_text_area = { 0, graph_area_h, w, text_area_h };
 
     // Read calibration values from NVS.
+
+    M5_LOGW("IMU h/w type :%s", name);
+    M5.Display.printf("imu:%s", name);
+
     
 	M5_LOGW("checking NVS");
 	
@@ -314,31 +363,33 @@ void loop(void)
         
         drawGraph(rect_graph_area, data);
 
-#if 1
-	// The data obtained by getImuData can be used as follows.
-	data.accel.x;       // accel x-axis value.
-	data.accel.y;       // accel y-axis value.
-	data.accel.z;       // accel z-axis value.
-	//data.accel.value; // accel 3values array [0]=x / [1]=y / [2]=z.
+#if 0
+		// The data obtained by getImuData can be used as follows.
+		data.accel.x;       // accel x-axis value.
+		data.accel.y;       // accel y-axis value.
+		data.accel.z;       // accel z-axis value.
+		//data.accel.value; // accel 3values array [0]=x / [1]=y / [2]=z.
 
-	data.gyro.x;       // gyro x-axis value.
-	data.gyro.y;       // gyro y-axis value.
-	data.gyro.z;       // gyro z-axis value.
-	//data.gyro.value; // gyro 3values array [0]=x / [1]=y / [2]=z.
+		data.gyro.x;       // gyro x-axis value.
+		data.gyro.y;       // gyro y-axis value.
+		data.gyro.z;       // gyro z-axis value.
+		//data.gyro.value; // gyro 3values array [0]=x / [1]=y / [2]=z.
 
-	data.mag.x;       // mag x-axis value.
-	data.mag.y;       // mag y-axis value.
-	data.mag.z;       // mag z-axis value.
-	//data.mag.value; // mag 3values array [0]=x / [1]=y / [2]=z.
+		data.mag.x;       // mag x-axis value.
+		data.mag.y;       // mag y-axis value.
+		data.mag.z;       // mag z-axis value.
+		//data.mag.value; // mag 3values array [0]=x / [1]=y / [2]=z.
 
-	// interesting.... a 3x3 array of everthing.
-	//data.value;      // all sensor 9values array [0~2]=accel / [3~5]=gyro / [6~8]=mag
+		// interesting.... a 3x3 array of everthing.
+		//data.value;      // all sensor 9values array [0~2]=accel / [3~5]=gyro / [6~8]=mag
 
-	M5_LOGI("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
-	M5_LOGI("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
-	M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
+		M5_LOGI("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
+		M5_LOGI("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
+		M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
 #endif
 
+		runMahony(data.gyro.x,data.gyro.y,data.gyro.z);
+	
         ++imuNumReads;
     }
     else
