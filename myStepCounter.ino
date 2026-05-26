@@ -132,21 +132,22 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
 }
 
 
-void updateCalibration(uint32_t bStartCal, bool bTurnOnOrOff = false)
+void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
 {
-    calib_countdown = bStartCal;
+    calib_countdown = uCalCount;
 
 	static uint32_t stopwatch;
-	
-    if (bStartCal == 0)
-        bTurnOnOrOff = true;
 
-    if (bTurnOnOrOff)
+
+	// what do if count hits zero.
+    if (uCalCount == 0) bForceStart = true;
+
+    if (bForceStart)
     {
         memset(prev_xpos, 0, sizeof(prev_xpos));
         display.fillScreen(TFT_BLACK);
 
-        if (bStartCal)
+        if (uCalCount)
         { 
         	M5.Speaker.tone(2000, 300);
         	delay(1000);
@@ -190,19 +191,21 @@ void updateCalibration(uint32_t bStartCal, bool bTurnOnOrOff = false)
             //						 );
 
             // save calibration values.
+
+            M5_LOGW("saving to NVS");
             
             M5.Imu.saveOffsetToNVS();
         }
     }
 
-    auto backcolor = (bStartCal == 0) ? TFT_BLACK : TFT_BLUE;
+    auto backcolor = (uCalCount == 0) ? TFT_BLACK : TFT_BLUE;
     display.fillRect(rect_text_area.x, rect_text_area.y, rect_text_area.w, rect_text_area.h, backcolor);
 
-    if (bStartCal)
+    if (uCalCount)
     {
         display.setCursor(rect_text_area.x + 2, rect_text_area.y + 1);
         display.setTextColor(TFT_WHITE, TFT_BLUE);
-        display.printf("Countdown:%d ", bStartCal);
+        display.printf("Countdown:%d ", uCalCount);
 
 		M5.Speaker.tone(900, 100);
     }
@@ -279,14 +282,24 @@ void setup(void)
     rect_text_area = { 0, graph_area_h, w, text_area_h };
 
     // Read calibration values from NVS.
-    if (!M5.Imu.loadOffsetFromNVS())
+    
+	M5_LOGW("checking NVS");
+	
+    if (M5.Imu.loadOffsetFromNVS())
+    {
+    	M5_LOGW("Loading data found NVS ... skipping cal");
+    }
+    else
+    {
+    	M5_LOGW("Nothing found in NVS");
         startCalibration();
+    }
 }
 
 
 void loop(void)
 {
-    static uint32_t frame_count = 0;
+    static uint32_t imuNumReads = 0;
     static uint32_t prev_sec = 0;
 
     // To update the IMU value, use M5.Imu.update.
@@ -301,31 +314,32 @@ void loop(void)
         
         drawGraph(rect_graph_area, data);
 
-		/*
-		*  // The data obtained by getImuData can be used as follows.
-		*  data.accel.x;      // accel x-axis value.
-		*  data.accel.y;      // accel y-axis value.
-		*  data.accel.z;      // accel z-axis value.
-		*  data.accel.value;  // accel 3values array [0]=x / [1]=y / [2]=z.
-		*
-		*  data.gyro.x;      // gyro x-axis value.
-		*  data.gyro.y;      // gyro y-axis value.
-		*  data.gyro.z;      // gyro z-axis value.
-		*  data.gyro.value;  // gyro 3values array [0]=x / [1]=y / [2]=z.
-		*
-		*  data.mag.x;       // mag x-axis value.
-		*  data.mag.y;       // mag y-axis value.
-		*  data.mag.z;       // mag z-axis value.
-		*  data.mag.value;   // mag 3values array [0]=x / [1]=y / [2]=z.
-		*
-		*  data.value;       // all sensor 9values array [0~2]=accel / [3~5]=gyro / [6~8]=mag
-		*
-		*  M5_LOGV("ax:%f  ay:%f  az:%f", data.accel.x, data.accel.y, data.accel.z);
-		*  M5_LOGV("gx:%f  gy:%f  gz:%f", data.gyro.x , data.gyro.y , data.gyro.z );
-		*  M5_LOGV("mx:%f  my:%f  mz:%f", data.mag.x  , data.mag.y  , data.mag.z  );
-		* //*/
+#if 1
+	// The data obtained by getImuData can be used as follows.
+	data.accel.x;       // accel x-axis value.
+	data.accel.y;       // accel y-axis value.
+	data.accel.z;       // accel z-axis value.
+	//data.accel.value; // accel 3values array [0]=x / [1]=y / [2]=z.
 
-        ++frame_count;
+	data.gyro.x;       // gyro x-axis value.
+	data.gyro.y;       // gyro y-axis value.
+	data.gyro.z;       // gyro z-axis value.
+	//data.gyro.value; // gyro 3values array [0]=x / [1]=y / [2]=z.
+
+	data.mag.x;       // mag x-axis value.
+	data.mag.y;       // mag y-axis value.
+	data.mag.z;       // mag z-axis value.
+	//data.mag.value; // mag 3values array [0]=x / [1]=y / [2]=z.
+
+	// interesting.... a 3x3 array of everthing.
+	//data.value;      // all sensor 9values array [0~2]=accel / [3~5]=gyro / [6~8]=mag
+
+	M5_LOGI("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
+	M5_LOGI("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
+	M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
+#endif
+
+        ++imuNumReads;
     }
     else
     {
@@ -336,18 +350,19 @@ void loop(void)
             startCalibration();
     }
 
-    int32_t seconds = millis() / 1000;
+    int32_t secondsPassed = millis() / 1000;
 
-    if (prev_sec != seconds)
+    if (prev_sec != secondsPassed)
     {
-        prev_sec = seconds;
-        M5_LOGI("seconds:%d  frame:%d", seconds, frame_count);
-        frame_count = 0;
+        prev_sec = secondsPassed;
+        
+        //M5_LOGI("secondsPassed:%d  frame:%d", secondsPassed, imuNumReads);
+        //imuNumReads = 0;
 
         if (calib_countdown)
             updateCalibration(calib_countdown - 1);
 
-        if ((seconds & 7) == 0) // prevent WDT.
+        if ((secondsPassed & 7) == 0) // prevent WDT.
             vTaskDelay(1);
     }
 }
