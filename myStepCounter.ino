@@ -42,10 +42,10 @@ static constexpr const uint8_t calDepth = 64;
 
 struct rect_t
 {
-    int32_t across;
-    int32_t down;
-    int32_t w;
-    int32_t h;
+    int32_t topLeftX;
+    int32_t topLeftY;
+    int32_t rectW;
+    int32_t rectH;
 };
 
 static constexpr const uint32_t color_tbl[18] =
@@ -60,8 +60,8 @@ static constexpr const uint32_t color_tbl[18] =
 static constexpr const float coefficient_tbl[3] = { 0.5f, (1.0f / 256.0f), (1.0f / 1024.0f) };
 
 static auto &display = (M5.Display);
-static rect_t rect_graph_area;
-static rect_t rect_text_area;
+static rect_t graphicWindow;
+static rect_t textWindow;
 
 static uint8_t calib_countdown = 0;
 
@@ -96,9 +96,9 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
     //float gw = (128 * r.w) / 256.0f;
     //float mw = (128 * r.w) / 1024.0f;
     
-    int topLeftX = (r.across + r.w) >> 1;
-    int topLeftY = r.down;
-    int heightY = (r.h / 18) * (calib_countdown ? 1 : 2);
+    int topLeftX = (r.topLeftX + r.rectW) >> 1;
+    int topLeftY = r.topLeftY;
+    int heightY = (r.rectH / 18) * (calib_countdown ? 1 : 2);
     
     int bar_count = 9 * (calib_countdown ? 2 : 1);
 
@@ -112,7 +112,7 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
 
         if (index < 9)
         {
-            auto coe = coefficient_tbl[index / 3] * r.w;
+            auto coe = coefficient_tbl[index / 3] * r.rectW;
             xval = data.value[index] * coe;
         }
         else
@@ -245,11 +245,17 @@ void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
     }
 
     auto backcolor = (uCalCount == 0) ? TFT_BLACK : TFT_BLUE;
-    display.fillRect(rect_text_area.across, rect_text_area.down, rect_text_area.w, rect_text_area.h, backcolor);
+
+	// clear text window.
+    display.fillRect(textWindow.topLeftX,
+    				 textWindow.topLeftY, 
+    				 textWindow.rectW, 
+    				 textWindow.rectH, 
+    				 backcolor);
 
     if (uCalCount)
     {
-        display.setCursor(rect_text_area.across + 2, rect_text_area.down + 1);
+        display.setCursor(textWindow.topLeftX + 2, textWindow.topLeftY + 1);
         display.setTextColor(TFT_WHITE, TFT_BLUE);
         display.printf("Countdown:%d ", uCalCount);
 
@@ -323,8 +329,8 @@ void setup(void)
     
     display.setTextSize(fontsize);
 
-    rect_graph_area = { 0, 0, w, graph_area_h };
-    rect_text_area = { 0, graph_area_h, w, text_area_h };
+    graphicWindow = { 0, 0, w, graph_area_h };
+    textWindow = { 0, graph_area_h, w, text_area_h };
 
     // Read calibration values from NVS.
 
@@ -361,7 +367,7 @@ void loop(void)
         // Obtain data on the current value of the IMU.
         auto data = M5.Imu.getImuData();
         
-        drawGraph(rect_graph_area, data);
+        drawGraph(graphicWindow, data);
 
 #if 0
 		// The data obtained by getImuData can be used as follows.
