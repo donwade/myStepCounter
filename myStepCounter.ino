@@ -47,6 +47,8 @@ struct rect_t
 uint8_t numSensorsInIMU = 2;  // we only have gyro and accel, no compass
 uint8_t numItemsPerSensor = 3;   // x, y, z
 
+#define BAR_THICK 18
+
 static constexpr const uint32_t color_tbl[18] =
 {
     0xFF0000u, 0xCCCC00u, 0xCC00FFu,
@@ -91,22 +93,20 @@ void drawBar(int32_t topLeftX, int32_t topLeftY, int32_t offsetX, int32_t width,
 
 void drawGraph(const rect_t& r, const m5::imu_data_t& data)
 {
-    //float aw = (128 * r.w) >> 1;
-    //float gw = (128 * r.w) / 256.0f;
-    //float mw = (128 * r.w) / 1024.0f;
-    
     int topLeftX = (r.topLeftX + r.rectW) >> 1;
     int topLeftY = r.topLeftY;
-    int heightY = (r.rectH / 18);
+    
+    int heightY = (r.rectH / BAR_THICK);
     
     int bar_count = numSensorsInIMU * numItemsPerSensor;
 
     display.startWrite();
 
 	//Serial.printf("bar_count = %d\n", bar_count);
+	// data.accel[3] + data.gyro[3] = 6 items
 
     int barNum;
-    for (int barNum = 0; barNum < bar_count; ++barNum)
+    for (barNum = 0; barNum < bar_count; ++barNum)
     {
         float xval;
 
@@ -134,6 +134,8 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
     }
 
     display.endWrite();
+    //Serial.printf("x aph display ends at %d\n", topLeftY + heightY * barNum);
+    //Serial.printf("ssss = %d\n", r.rectH);
 }
 
 //---------------------------------------------------------------------
@@ -262,12 +264,19 @@ void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
     }
 }
 
+//-------------------------------------------------------------
 
 void startCalibration(void)
 {
     updateCalibration(10, true);
 }
+//-------------------------------------------------------------
 
+void showRect(char *msg, rect_t *reader)
+{
+	M5_LOGW("%s x=%d y=%d w=%d h=%d\n", msg, reader->topLeftX, reader->topLeftY, reader->rectW, reader->rectH);
+}
+//-------------------------------------------------------------
 
 void setup(void)
 {
@@ -324,30 +333,47 @@ void setup(void)
         }
     }
 
-    int32_t w = display.width();
-    int32_t h = display.height();
+    int32_t displayWidth = display.width();
+    int32_t displayHeight = display.height();
 
-    if (w < h)
+	
+    if (displayWidth < displayHeight)
     {
         display.setRotation(display.getRotation() ^ 1);
-        w = display.width();
-        h = display.height();
+        displayWidth = display.width();
+        displayHeight = display.height();
     }
 
-    int32_t graph_area_h = ((h - 8) / 18) * 18;
-    int32_t text_area_h = h - graph_area_h;
+	M5_LOGW("display is %d x %d [w x h]\n", displayWidth, displayHeight);
+
+    int32_t graph_area_h = ((displayHeight - 8) / BAR_THICK) * BAR_THICK;
+    int32_t text_area_h = displayHeight - graph_area_h;
     float fontsize = text_area_h / 8;
 
     Serial.printf("graph height=%d text height = %d\n", graph_area_h, text_area_h);
     
     display.setTextSize(fontsize);
 
-    graphicWindow = { 0, 0, w, graph_area_h };
-    textWindow = { 0, graph_area_h, w, text_area_h };
+    graphicWindow = { 0, 0, displayWidth, graph_area_h };
+    textWindow = { 0, graph_area_h, displayWidth, text_area_h };
 
+	showRect("graphicWindow", &graphicWindow);
+	showRect("textWindow", &textWindow);
+
+    display.clear();
+	display.display();
+    delay(2000);
+    
+	display.fillRect(graphicWindow.topLeftX, graphicWindow.topLeftY, graphicWindow.rectW, graphicWindow.rectH, 0xFFFF00);
+	display.display();
+    delay(2000);
+    
+	display.fillRect(textWindow.topLeftX, textWindow.topLeftY, textWindow.rectW, textWindow.rectH, 0x00FFFF);
+	display.display();
+    delay(2000);
     // Read calibration values from NVS.
 
-    M5_LOGW("IMU h/w type :%s", name);
+    M5_LOGW("IMU displayHeight/displayWidth type :%s", name);
     M5.Display.printf("imu:%s", name);
 
     
