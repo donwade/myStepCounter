@@ -98,7 +98,7 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
     
     int topLeftX = (r.topLeftX + r.rectW) >> 1;
     int topLeftY = r.topLeftY;
-    int heightY = (r.rectH / 18) * (calib_countdown ? 1 : 2);
+    int heightY = (r.rectH / 18);
     
     int bar_count = 9 * (calib_countdown ? 2 : 1);
 
