@@ -8,10 +8,6 @@
 // Include this to enable the M5 global instance.
 #include <M5Unified.h>
 
-#include <MahonyAHRS.h>
-Mahony filter;
-
-
 // Strength of the calibration operation;
 // 0: disables calibration.
 // 1 is weakest and 255 is strongest.
@@ -47,6 +43,8 @@ struct rect_t
     int32_t rectW;
     int32_t rectH;
 };
+
+uint8_t numSensorsInIMU = 2;  // we only have gyro and accel, no compass
 
 static constexpr const uint32_t color_tbl[18] =
 {
@@ -145,6 +143,12 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
 }
 
 //---------------------------------------------------------------------
+
+#if 0 // USELESS
+
+#include <MahonyAHRS.h>
+Mahony filter;
+
 inline float  DEGREES(float x) { return (x * 180. / 3.14159);}
 
 void runMahony(float fGx,float fGy, float fGz)
@@ -173,7 +177,8 @@ void runMahony(float fGx,float fGy, float fGz)
   }
 
 } 
- 
+#endif
+
 //---------------------------------------------------------------------
 //---------------------------------------------------------------------
 //---------------------------------------------------------------------
@@ -279,27 +284,40 @@ void setup(void)
 
     M5.begin(cfg);
 	Serial.begin(115200);
-    delay(2000);
-    Serial.println("sssssssssssssssssssssssssssssssssssssssssssssssss");
-    
+     
     const char *name;
     auto imu_type = M5.Imu.getType();
 
     switch (imu_type)
     {
-	    case m5::imu_none:        name = "not found";   break;
+	    case m5::imu_none:
+	    	name = "not found";
+	    	break;
 
-	    case m5::imu_sh200q:      name = "sh200q";      break;
+	    case m5::imu_sh200q:
+	    	name = "sh200q";
+	    	break;
 
-	    case m5::imu_mpu6050:     name = "mpu6050";     break;
+	    case m5::imu_mpu6050:
+	    	name = "mpu6050"; 
+	    	break;
 
-	    case m5::imu_mpu6886:     name = "mpu6886";     break;
+	    case m5::imu_mpu6886:
+	    	name = "mpu6886";
+	    	break;
 
-	    case m5::imu_mpu9250:     name = "mpu9250";     break;
+	    case m5::imu_mpu9250:
+	    	name = "mpu9250";
+	    	break;
 
-	    case m5::imu_bmi270:      name = "bmi270";      break;
+	    case m5::imu_bmi270:
+	    	name = "bmi270";
+	    	numSensorsInIMU = 2; //gyro and accel, no mag
+	    	break;
 
-	    default:                  name = "unknown";     break;
+	    default:
+	    	name = "unknown";
+	    	break;
     }
 
     if (imu_type == m5::imu_none)
@@ -308,6 +326,7 @@ void setup(void)
         {
         	Serial.print('.');
             delay(1000);
+            assert(0);
         }
     }
 
@@ -394,7 +413,7 @@ void loop(void)
 		M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
 #endif
 
-		runMahony(data.gyro.x,data.gyro.y,data.gyro.z);
+		//runMahony(data.gyro.x,data.gyro.y,data.gyro.z);
 	
         ++imuNumReads;
     }
