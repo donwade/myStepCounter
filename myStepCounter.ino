@@ -45,6 +45,7 @@ struct rect_t
 };
 
 uint8_t numSensorsInIMU = 2;  // we only have gyro and accel, no compass
+uint8_t numItemsPerSensor = 3;   // x, y, z
 
 static constexpr const uint32_t color_tbl[18] =
 {
@@ -98,27 +99,20 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
     int topLeftY = r.topLeftY;
     int heightY = (r.rectH / 18);
     
-    int bar_count = 9 * (calib_countdown ? 2 : 1);
+    int bar_count = numSensorsInIMU * numItemsPerSensor;
 
     display.startWrite();
 
 	//Serial.printf("bar_count = %d\n", bar_count);
-	
-    for (int index = 0; index < bar_count; ++index)
+
+    int barNum;
+    for (int barNum = 0; barNum < bar_count; ++barNum)
     {
         float xval;
 
-        if (index < 9)
-        {
-            auto coe = coefficient_tbl[index / 3] * r.rectW;
-            xval = data.value[index] * coe;
-        }
-        else
-        {
-        	// 
-            xval = M5.Imu.getOffsetData(index - 9) * (1.0f / (1 << 19));
-        }
-
+		auto coe = coefficient_tbl[barNum / 3] * r.rectW;
+		xval = data.value[barNum] * coe;
+  
         // for Linear scale graph.
         float tmp = xval;
 
@@ -126,17 +120,17 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
 		//  float tmp = sqrtf(fabsf(xval * 128)) * (signbit(xval) ? -1 : 1);
 
         int offsetX = tmp;
-        int widthX = prev_xpos[index];
+        int widthX = prev_xpos[barNum];
 
         if (offsetX != widthX)
-            prev_xpos[index] = offsetX;
+            prev_xpos[barNum] = offsetX;
 
         drawBar(topLeftX, 
-        		topLeftY + heightY * index, 
+        		topLeftY + heightY * barNum, 
         		offsetX, 
         		widthX, 
         		heightY - 1, 
-        		color_tbl[index]);
+        		color_tbl[barNum]);
     }
 
     display.endWrite();
