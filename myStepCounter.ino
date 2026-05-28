@@ -14,7 +14,6 @@
 
 static constexpr const uint8_t calDepth = 64;
 
-
 // This sample code performs calibration by clicking on a button or screen.
 // After 10 seconds of calibration, the results are stored in NVS.
 // The saved calibration values are loaded at the next startup.
@@ -93,10 +92,10 @@ void drawBar(int32_t topLeftX, int32_t topLeftY, int32_t offsetX, int32_t width,
 
 void drawGraph(const rect_t& r, const m5::imu_data_t& data)
 {
-    int topLeftX = (r.topLeftX + r.rectW) >> 1;
+    int topLeftX = (r.topLeftX + r.rectW) /2;  // move to horizontal center point.
     int topLeftY = r.topLeftY;
     
-    int heightY = (r.rectH / BAR_THICK);
+    int heightY = BAR_THICK;
     
     int bar_count = numSensorsInIMU * numItemsPerSensor;
 
@@ -344,11 +343,14 @@ void setup(void)
         displayHeight = display.height();
     }
 
-	M5_LOGW("display is %d x %d [w x h]\n", displayWidth, displayHeight);
+	M5_LOGW("physical display is %d w x %d h\n", displayWidth, displayHeight);
 
-    int32_t graph_area_h = ((displayHeight - 8) / BAR_THICK) * BAR_THICK;
+
+    //int32_t graph_area_h = ((displayHeight - 8) / BAR_THICK) * BAR_THICK;
+    int32_t graph_area_h = numSensorsInIMU * numItemsPerSensor * BAR_THICK;
     int32_t text_area_h = displayHeight - graph_area_h;
-    float fontsize = text_area_h / 8;
+    
+    float fontsize = 3;
 
     Serial.printf("graph height=%d text height = %d\n", graph_area_h, text_area_h);
     
@@ -357,20 +359,26 @@ void setup(void)
     graphicWindow = { 0, 0, displayWidth, graph_area_h };
     textWindow = { 0, graph_area_h, displayWidth, text_area_h };
 
-	showRect("graphicWindow", &graphicWindow);
-	showRect("textWindow", &textWindow);
 
     display.clear();
 	display.display();
     delay(2000);
     
-	display.fillRect(graphicWindow.topLeftX, graphicWindow.topLeftY, graphicWindow.rectW, graphicWindow.rectH, 0xFFFF00);
+	showRect("graphicWindow", &graphicWindow);
+	display.drawRect(graphicWindow.topLeftX, graphicWindow.topLeftY, 
+					 graphicWindow.rectW, graphicWindow.rectH, 
+					 TFT_BLUE);
 	display.display();
-    delay(2000);
     
-	display.fillRect(textWindow.topLeftX, textWindow.topLeftY, textWindow.rectW, textWindow.rectH, 0x00FFFF);
+	showRect("textWindow", &textWindow);
+	display.drawRect(textWindow.topLeftX, textWindow.topLeftY, 
+					 textWindow.rectW, textWindow.rectH, 
+					 TFT_YELLOW);
+					 
 	display.display();
+
     delay(2000);
+
     // Read calibration values from NVS.
 
     M5_LOGW("IMU displayHeight/displayWidth type :%s", name);
