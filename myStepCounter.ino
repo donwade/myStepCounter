@@ -7,6 +7,8 @@
 
 // Include this to enable the M5 global instance.
 #include <M5Unified.h>
+//#include <MahonyAHRS.h>
+#include <_RTC.h>
 
 // Strength of the calibration operation;
 // 0: disables calibration.
@@ -57,7 +59,22 @@ static constexpr const uint32_t color_tbl[18] =
     0xFFCC00u, 0x00FF00u, 0x0088FFu,
     0xFF00CCu, 0x00FFCCu, 0x0000FFu,
 };
-static constexpr const float coefficient_tbl[3] = { 0.5f, (1.0f / 256.0f), (1.0f / 1024.0f) };
+
+#define BMI_270  // m5 core2
+
+#ifdef BMI_270
+static constexpr const float coefficient_tbl[3] = {  
+													(1.0f / 256.0f),	//scale ACCEL
+													 0.5f,				//scale GYRO 
+													(1.0f / 1024.0f)	//scale MAGNET
+													};
+#else
+static constexpr const float coefficient_tbl[3] = {  0.5f,				//scale GYRO 
+													(1.0f / 256.0f), 	//scale ACCEL
+													(1.0f / 1024.0f)	//scale MAGNET
+													};
+
+#endif
 
 static auto &display = (M5.Display);
 static rect_t graphicWindow;
@@ -90,7 +107,8 @@ void drawBar(int32_t topLeftX, int32_t topLeftY, int32_t offsetX, int32_t width,
 }
 
 
-void drawGraph(const rect_t& r, const m5::imu_data_t& data)
+
+void drawImuStatsII(const rect_t& r, const m5::imu_data_t& data)
 {
     int topLeftX = (r.topLeftX + r.rectW) /2;  // move to horizontal center point.
     int topLeftY = r.topLeftY;
@@ -137,6 +155,48 @@ void drawGraph(const rect_t& r, const m5::imu_data_t& data)
     //Serial.printf("ssss = %d\n", r.rectH);
 }
 
+void drawImuStats(const rect_t& r, const m5::imu_data_t& data)
+{
+    int topLeftX = (r.topLeftX + r.rectW) /2;  // move to horizontal center point.
+    int topLeftY = r.topLeftY;
+    
+    int heightY = BAR_THICK;
+    
+    int bar_count = numSensorsInIMU * numItemsPerSensor;
+
+    display.startWrite();
+
+	//Serial.printf("bar_count = %d\n", bar_count);
+	// data.accel[3] + data.gyro[3] = 6 items
+
+    int barNum;
+    for (barNum = 0; barNum < bar_count; ++barNum)
+    {
+        float xval;
+
+		auto coe = coefficient_tbl[barNum / 3] * r.rectW;
+		xval = data.value[barNum] * coe;
+ 
+
+        int offsetX = xval;
+        int widthX = prev_xpos[barNum];
+
+        if (offsetX != widthX)
+            prev_xpos[barNum] = offsetX;
+
+        drawBar(topLeftX, 
+        		topLeftY + heightY * barNum, 
+        		offsetX, 
+        		widthX, 
+        		heightY - 1, 
+        		color_tbl[barNum]);
+    }
+
+    display.endWrite();
+    //Serial.printf("x aph display ends at %d\n", topLeftY + heightY * barNum);
+    //Serial.printf("ssss = %d\n", r.rectH);
+}
+
 //---------------------------------------------------------------------
 
 #if 0 // USELESS
@@ -146,7 +206,7 @@ Mahony filter;
 
 inline float  DEGREES(float x) { return (x * 180. / 3.14159);}
 
-void runMahony(float fGx,float fGy, float fGz)
+void showMahony(float fGx,float fGy, float fGz)
 {
   int ax, ay, az;
   int gx, gy, gz;
@@ -279,14 +339,15 @@ void showRect(char *msg, rect_t *reader)
 
 void setup(void)
 {
-    auto cfg = M5.config();
+    //auto cfg = M5.config();
+    m5::M5Unified::config_t cfg = M5.config();
 
     // If you want to use external IMU, write this
 	//cfg.external_imu = true;
 
     M5.begin(cfg);
 	Serial.begin(115200);
-     
+
     const char *name;
     auto imu_type = M5.Imu.getType();
 
@@ -359,11 +420,9 @@ void setup(void)
     graphicWindow = { 0, 0, displayWidth, graph_area_h };
     textWindow = { 0, graph_area_h, displayWidth, text_area_h };
 
-
+    // show perimeter of above debug windows.
     display.clear();
-	display.display();
-    delay(2000);
-    
+
 	showRect("graphicWindow", &graphicWindow);
 	display.drawRect(graphicWindow.topLeftX, graphicWindow.topLeftY, 
 					 graphicWindow.rectW, graphicWindow.rectH, 
@@ -382,8 +441,6 @@ void setup(void)
     // Read calibration values from NVS.
 
     M5_LOGW("IMU displayHeight/displayWidth type :%s", name);
-    M5.Display.printf("imu:%s", name);
-
     
 	M5_LOGW("checking NVS");
 	
@@ -396,8 +453,9 @@ void setup(void)
     	M5_LOGW("Nothing found in NVS");
         startCalibration();
     }
-}
 
+    _setup_RTC();
+}
 
 void loop(void)
 {
@@ -412,11 +470,25 @@ void loop(void)
     if (bNewImuData)
     {
         // Obtain data on the current value of the IMU.
-        auto data = M5.Imu.getImuData();
+        m5::IMU_Class::imu_data_t data = M5.Imu.getImuData();
         
-        drawGraph(graphicWindow, data);
+		// auto data = blah blah;
+    	//char *hareball;
+        //auto data = M5.Imu.getImuData();
+        //hareball = data;
 
-#if 0
+		// bug with BMI270. accel is where gyro is and vicea versa
+		// swap now so all consumers don't have to swap.
+		
+		#ifdef BMI_270
+			auto temp = data.accel;
+			data.accel = data.gyro;
+			data.gyro = temp;
+        #endif
+        
+        drawImuStats(graphicWindow, data);
+
+#if 1
 		// The data obtained by getImuData can be used as follows.
 		data.accel.x;       // accel x-axis value.
 		data.accel.y;       // accel y-axis value.
@@ -436,12 +508,33 @@ void loop(void)
 		// interesting.... a 3x3 array of everthing.
 		//data.value;      // all sensor 9values array [0~2]=accel / [3~5]=gyro / [6~8]=mag
 
-		M5_LOGI("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
-		M5_LOGI("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
-		M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
+		float MAG_GYRO;
+
+		// normalize gyro magnitude (always should be
+		MAG_GYRO = sqrt(data.gyro.x * data.gyro.x +
+						data.gyro.y * data.gyro.y + 
+						data.gyro.z * data.gyro.z) / sqrt(3.0);
+
+		float MAG_ACC;
+		MAG_ACC = sqrt(data.accel.x * data.accel.x +
+					   data.accel.y * data.accel.y + 
+					   data.accel.z * data.accel.z);
+
+		static uint16_t cnt;
+		cnt++;
+
+		
+		if (cnt > 300)
+		{	
+			cnt = 0;
+			M5_LOGI("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
+			M5_LOGI("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
+		  //M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
+			M5_LOGI("|G| = %f  |A| = %f", MAG_GYRO, MAG_ACC);
+			M5_LOGI(" ");
+		}
 #endif
 
-		//runMahony(data.gyro.x,data.gyro.y,data.gyro.z);
 	
         ++imuNumReads;
     }
