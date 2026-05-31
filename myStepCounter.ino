@@ -45,6 +45,20 @@ struct rect_t
     int32_t rectH;
 };
 
+#include <math.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+// Define 3D Coordinate structure
+typedef struct {
+    double x; // Easting
+    double y; // Northing
+    double z; // Altitude (unused for azimuth)
+} Point3D;
+
+
 uint8_t numSensorsInIMU = 2;  // we only have gyro and accel, no compass
 uint8_t numItemsPerSensor = 3;   // x, y, z
 
@@ -335,6 +349,57 @@ void showRect(char *msg, rect_t *reader)
 {
 	M5_LOGW("%s x=%d y=%d w=%d h=%d\n", msg, reader->topLeftX, reader->topLeftY, reader->rectW, reader->rectH);
 }
+
+//-------------------------------------------------------------
+//-------------------------------------------------------------
+double azimuth(Point3D target)
+{
+    // Define origin and target positions
+    Point3D origin = {0.0, 0.0, 0.0};
+    //Point3D target = {10.0, 10.0, 5.0}; // Northeast quadrant
+
+    // Compute differences
+    double dx = target.x - origin.x;
+    double dy = target.y - origin.y;
+
+    // Calculate azimuth (Clockwise from North)
+    double azimuth_rad = atan2(dx, dy);
+    double azimuth_deg = azimuth_rad * (180.0 / M_PI);
+
+    // Keep angle positive between 0 and 360 degrees
+    //if (azimuth_deg < 0) {
+    //    azimuth_deg += 360.0;
+    //}
+
+    //printf("Target Vector: dx=%.2f, dy=%.2f\n", dx, dy);
+    //printf("Calculated Azimuth: %.2f degrees\n", azimuth_deg);
+
+    return azimuth_deg;
+}
+
+//-------------------------------------------------------------
+
+double elevation(Point3D target) {
+    // Define 3D Cartesian coordinates (X, Y, Z)
+    double x = target.x;
+    double y = target.y;
+    double z = target.z; // This is your absolute height/elevation
+
+    // 1. Absolute vertical elevation
+    double elevation_value = z;
+
+    // 2. Horizontal distance from the origin in the X-Y plane
+    double horizontal_dist = sqrt((x * x) + (y * y));
+
+    // 3. Compute elevation angle (in radians) using atan2 to avoid division-by-zero errors
+    double elevation_angle_rad = atan2(elevation_value, horizontal_dist);
+
+    // 4. Convert the angle from radians to degrees
+    double elevation_angle_deg = elevation_angle_rad * (180.0 / M_PI);
+
+	return elevation_angle_deg;
+}
+
 //-------------------------------------------------------------
 
 void setup(void)
@@ -457,6 +522,11 @@ void setup(void)
     _setup_RTC();
 }
 
+static float MAX_ACC = 0.0;
+static float MIN_ACC = 0.0;
+static float LAST_ACC = 0.0;
+
+
 void loop(void)
 {
     static uint32_t imuNumReads = 0;
@@ -464,7 +534,8 @@ void loop(void)
 
     // To update the IMU value, use M5.Imu.update.
     // If a new value is obtained, the return value is non-zero.
-    
+
+	delay(10);    
     auto bNewImuData = M5.Imu.update();
 
     if (bNewImuData)
@@ -520,10 +591,26 @@ void loop(void)
 					   data.accel.y * data.accel.y + 
 					   data.accel.z * data.accel.z);
 
+		float holdACC;
+		holdACC = (LAST_ACC < MAG_ACC) ? -MAG_ACC : MAG_ACC;
+		
+		if (MAX_ACC < holdACC) MAX_ACC = holdACC;
+		if (MIN_ACC > holdACC) MIN_ACC = holdACC;
+
+		LAST_ACC = MAG_ACC;
+		
+		
 		static uint16_t cnt;
 		cnt++;
 
-		
+		Point3D stick;
+		stick.x = data.gyro.x;
+		stick.y = data.gyro.y;
+		stick.z = data.gyro.z;
+
+		double elev = elevation(stick);
+		double azim = azimuth(stick);
+
 		if (cnt > 300)
 		{	
 			cnt = 0;
@@ -531,6 +618,8 @@ void loop(void)
 			M5_LOGI("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
 		  //M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
 			M5_LOGI("|G| = %f  |A| = %f", MAG_GYRO, MAG_ACC);
+			M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
+			M5_LOGI("azim = %.1f  elev = %.1f ", azim, elev);
 			M5_LOGI(" ");
 		}
 #endif
