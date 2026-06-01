@@ -43,6 +43,9 @@ struct window_t
     int32_t topLeftY;
     int32_t width;
     int32_t heigth;
+    uint32_t textForegndC;
+    uint32_t textBackgndC;
+    uint32_t boarderC;
 };
 
 #include <math.h>
@@ -93,6 +96,7 @@ static constexpr const float coefficient_tbl[3] = {  0.5f,				//scale GYRO
 static auto &display = (M5.Display);
 static window_t graphicWindow;
 static window_t textWindow;
+static window_t topWindow;
 
 static uint8_t calib_countdown = 0;
 
@@ -120,21 +124,20 @@ void drawBar(int32_t topLeftX, int32_t topLeftY, int32_t offsetX, int32_t width,
     }
 }
 
+//--------------------------------------------------------------
 
-
-void drawImuStatsII(const window_t& r, const m5::imu_data_t& data)
+void drawImuStats(const window_t& r, const m5::imu_data_t& imuDirect)
 {
-    int topLeftX = (r.topLeftX + r.width) /2;  // move to horizontal center point.
+    int midPointX = r.topLeftX + r.width/2;  // move to horizontal center point.
     int topLeftY = r.topLeftY;
-    
-    int heightY = BAR_THICK;
-    
-    int bar_count = numSensorsInIMU * numItemsPerSensor;
+        
+    int bar_count = numSensorsInIMU * numItemsPerSensor;  //0,1,2 accel xyz  4,5,6 gyro xyz
+    int barThick = r.heigth/ bar_count; 
 
     display.startWrite();
 
 	//Serial.printf("bar_count = %d\n", bar_count);
-	// data.accel[3] + data.gyro[3] = 6 items
+	// imuDirect.accel[3] + imuDirect.gyro[3] = 6 items
 
     int barNum;
     for (barNum = 0; barNum < bar_count; ++barNum)
@@ -142,67 +145,28 @@ void drawImuStatsII(const window_t& r, const m5::imu_data_t& data)
         float xval;
 
 		auto coe = coefficient_tbl[barNum / 3] * r.width;
-		xval = data.value[barNum] * coe;
-  
-        // for Linear scale graph.
-        float tmp = xval;
-
-        // The smaller the value, the larger the amount of change in the graph.
-		//  float tmp = sqrtf(fabsf(xval * 128)) * (signbit(xval) ? -1 : 1);
-
-        int offsetX = tmp;
-        int widthX = prev_xpos[barNum];
-
-        if (offsetX != widthX)
-            prev_xpos[barNum] = offsetX;
-
-        drawBar(topLeftX, 
-        		topLeftY + heightY * barNum, 
-        		offsetX, 
-        		widthX, 
-        		heightY - 1, 
-        		color_tbl[barNum]);
-    }
-
-    display.endWrite();
-    //Serial.printf("x aph display ends at %d\n", topLeftY + heightY * barNum);
-    //Serial.printf("ssss = %d\n", r.rectH);
-}
-
-void drawImuStats(const window_t& r, const m5::imu_data_t& data)
-{
-    int topLeftX = (r.topLeftX + r.width) /2;  // move to horizontal center point.
-    int topLeftY = r.topLeftY;
-    
-    int heightY = BAR_THICK;
-    
-    int bar_count = numSensorsInIMU * numItemsPerSensor;
-
-    display.startWrite();
-
-	//Serial.printf("bar_count = %d\n", bar_count);
-	// data.accel[3] + data.gyro[3] = 6 items
-
-    int barNum;
-    for (barNum = 0; barNum < bar_count; ++barNum)
-    {
-        float xval;
-
-		auto coe = coefficient_tbl[barNum / 3] * r.width;
-		xval = data.value[barNum] * coe;
+		xval = imuDirect.value[barNum] * coe;
  
 
-        int offsetX = xval;
-        int widthX = prev_xpos[barNum];
+        int newWidth = xval;
+        int oldWidth = prev_xpos[barNum];
 
-        if (offsetX != widthX)
-            prev_xpos[barNum] = offsetX;
+        int maxw = r.width/2 -1;
+        
+        if (newWidth < -maxw )
+        	newWidth = -maxw;
+        else if (newWidth > maxw)
+        	newWidth = maxw;
+        
 
-        drawBar(topLeftX, 
-        		topLeftY + heightY * barNum, 
-        		offsetX, 
-        		widthX, 
-        		heightY - 1, 
+        if (newWidth != oldWidth)
+            prev_xpos[barNum] = newWidth;
+
+        drawBar(midPointX, 
+        		topLeftY + barThick * barNum, 
+        		newWidth, 
+        		oldWidth, 
+        		barThick - 1, 
         		color_tbl[barNum]);
     }
 
@@ -345,9 +309,9 @@ void startCalibration(void)
 }
 //-------------------------------------------------------------
 
-void showRect(char *msg, window_t *reader)
+void showRect(char *msg, window_t &reader)
 {
-	M5_LOGW("%s x=%d y=%d w=%d h=%d\n", msg, reader->topLeftX, reader->topLeftY, reader->width, reader->heigth);
+	M5_LOGW("%s x=%d y=%d w=%d h=%d\n", msg, reader.topLeftX, reader.topLeftY, reader.width, reader.heigth);
 }
 
 //-------------------------------------------------------------
@@ -401,16 +365,29 @@ double elevation(Point3D target) {
 }
 
 //-------------------------------------------------------------
-void shrinkWindow(window_t &win, uint8_t shrinkBy)
+void makeWindow(window_t &win, int8_t boarder)
 {
-	win.heigth -= shrinkBy * 2;
-	win.width -= shrinkBy * 2;
-	win.topLeftX += shrinkBy;
-	win.topLeftY += shrinkBy;
-	
 	display.fillRect(win.topLeftX, win.topLeftY, 
 					 win.width, win.heigth, 
-					 TFT_BLACK);
+					 win.boarderC);
+
+	showRect("in",  win);
+
+	// boarder < 0. shrink ... > 0 grow
+	
+	win.heigth 		+= boarder * 2;
+	win.width 		+= boarder * 2;
+	win.topLeftX 	-= boarder;   // <0 = shrinking,  move in + dir
+	win.topLeftY 	-= boarder;
+	
+	showRect("out",  win);
+#if 1
+	display.fillRect(win.topLeftX, win.topLeftY, 
+					 win.width, win.heigth, 
+					 win.textBackgndC);
+
+#endif
+	display.display();
 }
 
 //https://github.com/m5stack/M5Stack/blob/master/examples/Advanced/Display/Free_Font_Demo/Free_Font_Demo.ino
@@ -507,26 +484,19 @@ void setup(void)
     
     display.setTextSize(fontsize);
 
-    graphicWindow = { 0, 0, displayWidth, graph_area_h };
-    textWindow = { 0, graph_area_h + 1, displayWidth, text_area_h };
+	
+    topWindow =     { 0,                0, displayWidth, displayHeight, TFT_WHITE, TFT_BLACK, TFT_WHITE};
+    
+    graphicWindow = { 0,                0, displayWidth, graph_area_h, TFT_RED, TFT_BLACK, TFT_YELLOW};
+    textWindow =    { 0, graph_area_h + 1, displayWidth, text_area_h,  TFT_GREEN, TFT_BLACK, TFT_CYAN};
 
     // show perimeter of above debug windows.
     display.clear();
 
-	showRect("graphicWindow", &graphicWindow);
-	display.fillRect(graphicWindow.topLeftX, graphicWindow.topLeftY, 
-					 graphicWindow.width, graphicWindow.heigth, 
-					 TFT_CYAN);
-	display.display();
-    
-	showRect("textWindow", &textWindow);
-	display.fillRect(textWindow.topLeftX, textWindow.topLeftY, 
-					 textWindow.width, textWindow.heigth, 
-					 TFT_YELLOW);
+	makeWindow(graphicWindow, -5);
+	makeWindow(textWindow, -5);
 
-	shrinkWindow(graphicWindow, 1);
-	shrinkWindow(textWindow, 1);
-					 
+  					 
 	display.display();
 
     delay(2000);
@@ -667,6 +637,9 @@ void loop(void)
 			M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
 			M5_LOGI("azim = %.1f  elev = %.1f ", azim, elev);
 			M5_LOGI(" ");
+			
+			MAX_ACC = 0.0;
+			MIN_ACC = 0.0;
 		}
 #endif
 
