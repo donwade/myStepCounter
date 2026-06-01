@@ -37,12 +37,12 @@ static constexpr const uint8_t calDepth = 64;
 // Values for extremely large attitude changes are ignored.
 // During calibration, it is desirable to move the device as gently as possible.
 
-struct rect_t
+struct window_t
 {
     int32_t topLeftX;
     int32_t topLeftY;
-    int32_t rectW;
-    int32_t rectH;
+    int32_t width;
+    int32_t heigth;
 };
 
 #include <math.h>
@@ -91,8 +91,8 @@ static constexpr const float coefficient_tbl[3] = {  0.5f,				//scale GYRO
 #endif
 
 static auto &display = (M5.Display);
-static rect_t graphicWindow;
-static rect_t textWindow;
+static window_t graphicWindow;
+static window_t textWindow;
 
 static uint8_t calib_countdown = 0;
 
@@ -122,9 +122,9 @@ void drawBar(int32_t topLeftX, int32_t topLeftY, int32_t offsetX, int32_t width,
 
 
 
-void drawImuStatsII(const rect_t& r, const m5::imu_data_t& data)
+void drawImuStatsII(const window_t& r, const m5::imu_data_t& data)
 {
-    int topLeftX = (r.topLeftX + r.rectW) /2;  // move to horizontal center point.
+    int topLeftX = (r.topLeftX + r.width) /2;  // move to horizontal center point.
     int topLeftY = r.topLeftY;
     
     int heightY = BAR_THICK;
@@ -141,7 +141,7 @@ void drawImuStatsII(const rect_t& r, const m5::imu_data_t& data)
     {
         float xval;
 
-		auto coe = coefficient_tbl[barNum / 3] * r.rectW;
+		auto coe = coefficient_tbl[barNum / 3] * r.width;
 		xval = data.value[barNum] * coe;
   
         // for Linear scale graph.
@@ -169,9 +169,9 @@ void drawImuStatsII(const rect_t& r, const m5::imu_data_t& data)
     //Serial.printf("ssss = %d\n", r.rectH);
 }
 
-void drawImuStats(const rect_t& r, const m5::imu_data_t& data)
+void drawImuStats(const window_t& r, const m5::imu_data_t& data)
 {
-    int topLeftX = (r.topLeftX + r.rectW) /2;  // move to horizontal center point.
+    int topLeftX = (r.topLeftX + r.width) /2;  // move to horizontal center point.
     int topLeftY = r.topLeftY;
     
     int heightY = BAR_THICK;
@@ -188,7 +188,7 @@ void drawImuStats(const rect_t& r, const m5::imu_data_t& data)
     {
         float xval;
 
-		auto coe = coefficient_tbl[barNum / 3] * r.rectW;
+		auto coe = coefficient_tbl[barNum / 3] * r.width;
 		xval = data.value[barNum] * coe;
  
 
@@ -323,8 +323,8 @@ void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
 	// clear text window.
     display.fillRect(textWindow.topLeftX,
     				 textWindow.topLeftY, 
-    				 textWindow.rectW, 
-    				 textWindow.rectH, 
+    				 textWindow.width, 
+    				 textWindow.heigth, 
     				 backcolor);
 
     if (uCalCount)
@@ -345,9 +345,9 @@ void startCalibration(void)
 }
 //-------------------------------------------------------------
 
-void showRect(char *msg, rect_t *reader)
+void showRect(char *msg, window_t *reader)
 {
-	M5_LOGW("%s x=%d y=%d w=%d h=%d\n", msg, reader->topLeftX, reader->topLeftY, reader->rectW, reader->rectH);
+	M5_LOGW("%s x=%d y=%d w=%d h=%d\n", msg, reader->topLeftX, reader->topLeftY, reader->width, reader->heigth);
 }
 
 //-------------------------------------------------------------
@@ -401,9 +401,34 @@ double elevation(Point3D target) {
 }
 
 //-------------------------------------------------------------
+void shrinkWindow(window_t &win, uint8_t shrinkBy)
+{
+	win.heigth -= shrinkBy * 2;
+	win.width -= shrinkBy * 2;
+	win.topLeftX += shrinkBy;
+	win.topLeftY += shrinkBy;
+	
+	display.fillRect(win.topLeftX, win.topLeftY, 
+					 win.width, win.heigth, 
+					 TFT_BLACK);
+}
+
+//https://github.com/m5stack/M5Stack/blob/master/examples/Advanced/Display/Free_Font_Demo/Free_Font_Demo.ino
+
+#include <TFT_eSPI.h>
+#define BIG_FONT &fonts::FreeSansBold24pt7b
+#define TOPIC_FONT &fonts::FreeSansBold9pt7b
+#define STATS_FONT &fonts::FreeMono12pt7b
 
 void setup(void)
 {
+
+	
+	//esp_log_level_set("*", ESP_LOG_ERROR);	// set all components to ERROR level
+	esp_log_level_set("*", ESP_LOG_INFO);		// set all components to ERROR level
+	esp_log_level_set("wifi", ESP_LOG_WARN);	// enable WARN logs from WiFi stack
+	esp_log_level_set("dhcpc", ESP_LOG_INFO);	// enable INFO logs from DHCP client
+
     //auto cfg = M5.config();
     m5::M5Unified::config_t cfg = M5.config();
 
@@ -471,8 +496,8 @@ void setup(void)
 
 	M5_LOGW("physical display is %d w x %d h\n", displayWidth, displayHeight);
 
+    _setup_RTC();
 
-    //int32_t graph_area_h = ((displayHeight - 8) / BAR_THICK) * BAR_THICK;
     int32_t graph_area_h = numSensorsInIMU * numItemsPerSensor * BAR_THICK;
     int32_t text_area_h = displayHeight - graph_area_h;
     
@@ -483,21 +508,24 @@ void setup(void)
     display.setTextSize(fontsize);
 
     graphicWindow = { 0, 0, displayWidth, graph_area_h };
-    textWindow = { 0, graph_area_h, displayWidth, text_area_h };
+    textWindow = { 0, graph_area_h + 1, displayWidth, text_area_h };
 
     // show perimeter of above debug windows.
     display.clear();
 
 	showRect("graphicWindow", &graphicWindow);
-	display.drawRect(graphicWindow.topLeftX, graphicWindow.topLeftY, 
-					 graphicWindow.rectW, graphicWindow.rectH, 
-					 TFT_BLUE);
+	display.fillRect(graphicWindow.topLeftX, graphicWindow.topLeftY, 
+					 graphicWindow.width, graphicWindow.heigth, 
+					 TFT_CYAN);
 	display.display();
     
 	showRect("textWindow", &textWindow);
-	display.drawRect(textWindow.topLeftX, textWindow.topLeftY, 
-					 textWindow.rectW, textWindow.rectH, 
+	display.fillRect(textWindow.topLeftX, textWindow.topLeftY, 
+					 textWindow.width, textWindow.heigth, 
 					 TFT_YELLOW);
+
+	shrinkWindow(graphicWindow, 1);
+	shrinkWindow(textWindow, 1);
 					 
 	display.display();
 
@@ -519,7 +547,25 @@ void setup(void)
         startCalibration();
     }
 
-    _setup_RTC();
+
+
+	
+	M5.Lcd.setTextSize(2);
+	
+    //https://doc-tft-espi.readthedocs.io/tft_espi/colors/
+	M5.Lcd.setTextColor(TFT_GREEN, TFT_BLACK);
+	
+	// https://doc-tft-espi.readthedocs.io/tft_espi/datums/
+ 	M5.Lcd.setTextDatum(TC_DATUM);  // center on X
+
+	M5.Lcd.drawString("NOW", textWindow.width/2, textWindow.topLeftY, BIG_FONT); 
+
+	uint32_t cHeight1;
+	const uint8_t VSPACE = 2;
+	
+	cHeight1 += M5.Lcd.fontHeight(STATS_FONT) + VSPACE;
+	
+
 }
 
 static float MAX_ACC = 0.0;
