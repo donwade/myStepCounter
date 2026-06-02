@@ -47,6 +47,12 @@ typedef struct text_t  // size of printed text
     int32_t heigth;
     uint32_t textForegndC;
     uint32_t textBackgndC;
+    uint32_t handle;
+    uint8_t tsize;
+	char msg[50];
+	uint32_t fgColor;
+	uint32_t bgColor;
+	const lgfx::v1::GFXfont *font;
  };
 
 struct window_t
@@ -58,7 +64,6 @@ struct window_t
     uint32_t textForegndC;
     uint32_t textBackgndC;
     uint32_t boarderC;
-
     text_t tinfo[8];
 };
 
@@ -120,7 +125,7 @@ void drawBar(int32_t midLeftX, int32_t midLeftY, int32_t newAcross, int32_t oldA
 {
     uint32_t bgcolor = (color >> 3) & 0x1F1F1Fu;
     
-	Serial.printf("oldAcross = %d newAcross = %d\n", oldAcross, newAcross);
+	//Serial.printf("oldAcross = %d newAcross = %d\n", oldAcross, newAcross);
 
 	// oldAcross is non-zero and while new and old are on opposite sides	
     if (oldAcross && ((newAcross < 0) != (oldAcross < 0)))
@@ -422,11 +427,71 @@ void makeWindow(window_t &win, int8_t boarder)
 const uint8_t VSPACE = 2;
 uint32_t cHeight1;
 
-uint32_t  myDrawString(char *msg, uint32_t topX, uint32_t topY, const lgfx::v1::GFXfont *font)
+uint32_t  myDrawString(window_t &window, 
+						char *msg, 
+						uint32_t topX, uint32_t topY, 
+						const lgfx::v1::GFXfont *font,
+						uint8_t size,
+						uint32_t fgColour, uint32_t bgColour
+						)
 {
-	M5.Lcd.drawString("NOW", topX, topY, font); 
-	return M5.Lcd.fontHeight(font) + VSPACE;
+	if (bgColour != TFT_BLACK )
+	{
+		M5_LOGW("only TFT_BLACK supported for background");
+		bgColour = TFT_BLACK;
+	}
+	
+	M5.Lcd.setTextColor(fgColour, bgColour);
+
+	M5.Lcd.setTextSize(size);
+	M5.Lcd.drawString(msg, topX, topY, font); 
+	window.tinfo[0].heigth = M5.Lcd.fontHeight(font) + VSPACE;
+	window.tinfo[0].width = M5.Lcd.textWidth(msg);
+	window.tinfo[0].topLeftX = topX;
+	window.tinfo[0].topLeftY = topY;
+	window.tinfo[0].font = font;
+	window.tinfo[0].tsize = size;
+	window.tinfo[0].bgColor = bgColour;
+	window.tinfo[0].fgColor = fgColour;
+	
+	strncpy(window.tinfo[0].msg, msg, sizeof(window.tinfo[0].msg));
+	window.tinfo[0].handle = micros();
+	display.display();
+	
+	return window.tinfo[0].handle;
 };
+
+uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
+{
+
+	if (window.tinfo[0].handle)
+	{
+		// erase previous
+		M5.Lcd.setTextColor(window.tinfo[0].bgColor, window.tinfo[0].bgColor);
+	
+		M5.Lcd.setTextSize( window.tinfo[0].tsize);
+		
+		M5.Lcd.drawString(window.tinfo[0].msg, 
+						  window.tinfo[0].topLeftX, window.tinfo[0].topLeftY,
+						  window.tinfo[0].font); 
+	}
+	
+	//display.display();
+	//delay(4000);
+	
+	M5.Lcd.setTextColor(TFT_RED, TFT_BLACK);
+	M5.Lcd.setTextColor(window.tinfo[0].fgColor, window.tinfo[0].bgColor);
+	
+	M5.Lcd.drawString(msg, window.tinfo[0].topLeftX, window.tinfo[0].topLeftY,
+						 window.tinfo[0].font); 
+	window.tinfo[0].width = M5.Lcd.textWidth(msg);
+
+	strncpy(window.tinfo[0].msg, msg, sizeof(window.tinfo[0].msg));
+	
+	display.display();
+	return window.tinfo[0].handle;
+};
+    
 
 void setup(void)
 {
@@ -559,9 +624,12 @@ void setup(void)
 	// https://doc-tft-espi.readthedocs.io/tft_espi/datums/
  	M5.Lcd.setTextDatum(TC_DATUM);  // center on X
 
-	myDrawString("NOW", textWindow.width/2, textWindow.topLeftY, BIG_FONT); 
-
-	
+	uint32_t foo = myDrawString(textWindow, "NOW", 
+								textWindow.width/2, textWindow.topLeftY, 
+								BIG_FONT, 2,
+								TFT_GREEN, TFT_BLACK); 
+	delay(2000);
+	myRefreshString(textWindow, foo, "HI");
 
 }
 
