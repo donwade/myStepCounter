@@ -407,12 +407,10 @@ void makeWindow(window_t &win, int8_t boarder)
 	win.topLeftY 	-= boarder;
 	
 	showRect("out",  win);
-#if 1
 	display.fillRect(win.topLeftX, win.topLeftY, 
 					 win.width, win.heigth, 
 					 win.textBackgndC);
 
-#endif
 	display.display();
 }
 
@@ -628,8 +626,6 @@ void setup(void)
 								textWindow.width/2, textWindow.topLeftY, 
 								BIG_FONT, 2,
 								TFT_GREEN, TFT_BLACK); 
-	delay(2000);
-	myRefreshString(textWindow, foo, "HI");
 
 }
 
@@ -735,6 +731,13 @@ void loop(void)
 			
 			MAX_ACC = 0.0;
 			MIN_ACC = 0.0;
+
+
+			static uint32_t loopy;
+			char msg[100];
+			sprintf(msg, "%d", loopy++);
+			
+			myRefreshString(textWindow, 0, msg);
 		}
 #endif
 
