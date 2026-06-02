@@ -37,6 +37,18 @@ static constexpr const uint8_t calDepth = 64;
 // Values for extremely large attitude changes are ignored.
 // During calibration, it is desirable to move the device as gently as possible.
 
+
+typedef struct text_t  // size of printed text
+{
+	uint32_t cHeight1;
+    int32_t topLeftX;
+    int32_t topLeftY;
+    int32_t width;
+    int32_t heigth;
+    uint32_t textForegndC;
+    uint32_t textBackgndC;
+ };
+
 struct window_t
 {
     int32_t topLeftX;
@@ -46,6 +58,8 @@ struct window_t
     uint32_t textForegndC;
     uint32_t textBackgndC;
     uint32_t boarderC;
+
+    text_t tinfo[8];
 };
 
 #include <math.h>
@@ -101,26 +115,33 @@ static window_t topWindow;
 static uint8_t calib_countdown = 0;
 
 static int prev_xpos[18];
-void drawBar(int32_t topLeftX, int32_t topLeftY, int32_t offsetX, int32_t width, int32_t heigth, uint32_t color)
+
+void drawBar(int32_t midLeftX, int32_t midLeftY, int32_t newAcross, int32_t oldAcross, int32_t heigth, uint32_t color)
 {
     uint32_t bgcolor = (color >> 3) & 0x1F1F1Fu;
+    
+	Serial.printf("oldAcross = %d newAcross = %d\n", oldAcross, newAcross);
 
-    if (width && ((offsetX < 0) != (width < 0)))
+	// oldAcross is non-zero and while new and old are on opposite sides	
+    if (oldAcross && ((newAcross < 0) != (oldAcross < 0)))
     {
-    	// a bar from left edge to the middle of display
-        display.fillRect(topLeftX, topLeftY, width, heigth, bgcolor);
-        width = 0;
+    	// zap the old bar as the new bar isn't on this side of the middle line
+        display.fillRect(midLeftX, midLeftY, oldAcross, heigth, bgcolor);
+
+        // pretend there was no old-across ever used.
+        oldAcross = 0;
     }
 
-    if (width != offsetX)
+	// is there a difference in widths?
+    if (oldAcross != newAcross)
     {
-    	// a bar from middle of display towards right edge of specifed width
-        if ((offsetX > width) != (offsetX < 0))
-            bgcolor = color;
+    	// if new across is to the right of the old across..... 
+    	// draw darkness.
+        if ((newAcross > oldAcross) != (newAcross < 0)) bgcolor = color;
 
         display.setColor(bgcolor);
         //               |<-right edge X-->|         |<- draw leftwards->|
-        display.fillRect(offsetX + topLeftX, topLeftY, width - offsetX  , heigth);
+        display.fillRect(newAcross + midLeftX, midLeftY, oldAcross - newAcross  , heigth);
     }
 }
 
@@ -393,9 +414,19 @@ void makeWindow(window_t &win, int8_t boarder)
 //https://github.com/m5stack/M5Stack/blob/master/examples/Advanced/Display/Free_Font_Demo/Free_Font_Demo.ino
 
 #include <TFT_eSPI.h>
-#define BIG_FONT &fonts::FreeSansBold24pt7b
+
+#define BIG_FONT   &fonts::FreeSansBold24pt7b
 #define TOPIC_FONT &fonts::FreeSansBold9pt7b
 #define STATS_FONT &fonts::FreeMono12pt7b
+
+const uint8_t VSPACE = 2;
+uint32_t cHeight1;
+
+uint32_t  myDrawString(char *msg, uint32_t topX, uint32_t topY, const lgfx::v1::GFXfont *font)
+{
+	M5.Lcd.drawString("NOW", topX, topY, font); 
+	return M5.Lcd.fontHeight(font) + VSPACE;
+};
 
 void setup(void)
 {
@@ -528,12 +559,8 @@ void setup(void)
 	// https://doc-tft-espi.readthedocs.io/tft_espi/datums/
  	M5.Lcd.setTextDatum(TC_DATUM);  // center on X
 
-	M5.Lcd.drawString("NOW", textWindow.width/2, textWindow.topLeftY, BIG_FONT); 
+	myDrawString("NOW", textWindow.width/2, textWindow.topLeftY, BIG_FONT); 
 
-	uint32_t cHeight1;
-	const uint8_t VSPACE = 2;
-	
-	cHeight1 += M5.Lcd.fontHeight(STATS_FONT) + VSPACE;
 	
 
 }
