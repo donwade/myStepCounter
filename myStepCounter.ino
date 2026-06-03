@@ -508,6 +508,7 @@ void setup(void)
 
     M5.begin(cfg);
 	Serial.begin(115200);
+	M5.Speaker.setVolume(32);
 
     const char *name;
     auto imu_type = M5.Imu.getType();
@@ -631,13 +632,23 @@ void setup(void)
 
 static float MAX_ACC = 0.0;
 static float MIN_ACC = 0.0;
+static float VELOCITY = 0.0;
+
 static float LAST_ACC = 0.0;
+
+#define REPORT_TIME  1000
+#define HYSTERESYS   200
+
+static uint32_t hysteresis;
+
+#define PROFILING 1
 
 
 void loop(void)
 {
     static uint32_t imuNumReads = 0;
     static uint32_t prev_sec = 0;
+
 
     // To update the IMU value, use M5.Imu.update.
     // If a new value is obtained, the return value is non-zero.
@@ -647,6 +658,30 @@ void loop(void)
 
     if (bNewImuData)
     {
+    
+		//	see below, end result = 11.0116 mS/sample
+
+#if PROFILING
+    	{
+    		// run profiling
+			static int32_t profileCtr = 3;
+			static uint32_t profileTime;
+			#define NUM_SAMPLES 1000
+	
+			if (profileCtr)
+			{
+				profileCtr--;
+			}
+			else
+			{
+				uint32_t diffTime = micros() - profileTime;
+				M5_LOGI("%d %.1f uS/sample" , diffTime, (float)diffTime /NUM_SAMPLES);
+				profileTime = micros();
+				profileCtr = NUM_SAMPLES;
+			}
+		}
+#endif
+
         // Obtain data on the current value of the IMU.
         m5::IMU_Class::imu_data_t data = M5.Imu.getImuData();
         
@@ -666,7 +701,7 @@ void loop(void)
         
         drawImuStats(graphicWindow, data);
 
-#if 1
+#if PROFILING == 0
 		// The data obtained by getImuData can be used as follows.
 		data.accel.x;       // accel x-axis value.
 		data.accel.y;       // accel y-axis value.
@@ -700,6 +735,8 @@ void loop(void)
 
 		float holdACC;
 		holdACC = (LAST_ACC < MAG_ACC) ? -MAG_ACC : MAG_ACC;
+
+		VELOCITY += holdACC;
 		
 		if (MAX_ACC < holdACC) MAX_ACC = holdACC;
 		if (MIN_ACC > holdACC) MIN_ACC = holdACC;
@@ -707,8 +744,9 @@ void loop(void)
 		LAST_ACC = MAG_ACC;
 		
 		
-		static uint16_t cnt;
-		cnt++;
+		static uint32_t reportTime;
+		static bool state;
+		reportTime++;
 
 		Point3D stick;
 		stick.x = data.gyro.x;
@@ -718,20 +756,51 @@ void loop(void)
 		double elev = elevation(stick);
 		double azim = azimuth(stick);
 
-		if (cnt > 300)
+		if ( 0 && millis() + REPORT_TIME > reportTime)
 		{	
-			cnt = 0;
-			M5_LOGI("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
-			M5_LOGI("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
-		  //M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
-			M5_LOGI("|G| = %f  |A| = %f", MAG_GYRO, MAG_ACC);
-			M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
-			M5_LOGI("azim = %.1f  elev = %.1f ", azim, elev);
-			M5_LOGI(" ");
+			reportTime = millis();
+
+			if ( state )
+			{
+				if ( VELOCITY < -HYSTERESYS)
+				{
+					M5.Speaker.tone(3000, 100);
+					state = false;	// look for - next time.
+					M5_LOGI("ax:%+9.7f	ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
+					M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
+					M5_LOGI("%.1f ", VELOCITY);
+					M5_LOGI(" ");
+				}
+			}
+			else
+			{
+				if (VELOCITY > +HYSTERESYS)
+				{
+					M5.Speaker.tone(2000, 100);
+					state = true;		// look for + next time
+					M5_LOGI("ax:%+9.7f	ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
+					M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
+					M5_LOGI("%.1f ", VELOCITY);
+					M5_LOGI(" ");
+				}
+			}
 			
+		  //M5_LOGI("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
+		  //M5_LOGI("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
+		  //M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
+		  //M5_LOGI("|G| = %f  |A| = %f", MAG_GYRO, MAG_ACC);
+		  
+		  //M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
+		  //M5_LOGI("%.1f ", VELOCITY);
+			
+		  //M5_LOGI("azim = %.1f  elev = %.1f ", azim, elev);
+
+
+			// new game.
 			MAX_ACC = 0.0;
 			MIN_ACC = 0.0;
-
+			VELOCITY = 0.0;
+			
 
 			static uint32_t loopy;
 			char msg[100];
