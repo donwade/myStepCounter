@@ -636,12 +636,12 @@ static float VELOCITY = 0.0;
 
 static float LAST_ACC = 0.0;
 
-#define REPORT_TIME  1000
+#define REPORT_TIMEmS  100
 #define HYSTERESYS   200
 
 static uint32_t hysteresis;
 
-#define PROFILING 1
+#define PROFILING 0
 
 
 void loop(void)
@@ -701,7 +701,7 @@ void loop(void)
         
         drawImuStats(graphicWindow, data);
 
-#if PROFILING == 0
+#if !PROFILING
 		// The data obtained by getImuData can be used as follows.
 		data.accel.x;       // accel x-axis value.
 		data.accel.y;       // accel y-axis value.
@@ -744,9 +744,8 @@ void loop(void)
 		LAST_ACC = MAG_ACC;
 		
 		
-		static uint32_t reportTime;
+		static uint32_t lastReportMs;
 		static bool state;
-		reportTime++;
 
 		Point3D stick;
 		stick.x = data.gyro.x;
@@ -756,9 +755,9 @@ void loop(void)
 		double elev = elevation(stick);
 		double azim = azimuth(stick);
 
-		if ( 0 && millis() + REPORT_TIME > reportTime)
+		if ( millis() >  REPORT_TIMEmS + lastReportMs)
 		{	
-			reportTime = millis();
+			lastReportMs = millis();
 
 			if ( state )
 			{
@@ -768,7 +767,7 @@ void loop(void)
 					state = false;	// look for - next time.
 					M5_LOGI("ax:%+9.7f	ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
 					M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
-					M5_LOGI("%.1f ", VELOCITY);
+					M5_LOGI("V = %.1f ", VELOCITY);
 					M5_LOGI(" ");
 				}
 			}
@@ -780,7 +779,7 @@ void loop(void)
 					state = true;		// look for + next time
 					M5_LOGI("ax:%+9.7f	ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
 					M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
-					M5_LOGI("%.1f ", VELOCITY);
+					M5_LOGI("V = %.1f ", VELOCITY);
 					M5_LOGI(" ");
 				}
 			}
