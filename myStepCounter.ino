@@ -9,6 +9,8 @@
 #include <M5Unified.h>
 //#include <MahonyAHRS.h>
 #include <_RTC.h>
+#include "myStepCounter.h"
+#include "basicFFT.h"
 
 // Strength of the calibration operation;
 // 0: disables calibration.
@@ -96,7 +98,7 @@ static constexpr const uint32_t color_tbl[18] =
     0xFF00CCu, 0x00FFCCu, 0x0000FFu,
 };
 
-#define BMI_270  // m5 core2
+#define BMI_270  // m5 core2 swap accel and gyro
 
 #ifdef BMI_270
 static constexpr const float coefficient_tbl[3] = {  
@@ -605,29 +607,29 @@ static uint32_t hysteresis;
 #define PROFILING 0
 
 
+
 void loop(void)
 {
     static uint32_t imuNumReads = 0;
     static uint32_t prev_sec = 0;
 
+    static uint16_t fft_index;
+	static int16_t  fft_input[FFT_INPUT_SIZE];
 
     // To update the IMU value, use M5.Imu.update.
     // If a new value is obtained, the return value is non-zero.
 
-	delay(10);    
     auto bNewImuData = M5.Imu.update();
 
     if (bNewImuData)
     {
     
-		//	see below, end result = 11.0116 mS/sample
-
 #if PROFILING
     	{
     		// run profiling
 			static int32_t profileCtr = 3;
 			static uint32_t profileTime;
-			#define NUM_SAMPLES 1000
+			#define NUM_SAMPLES 10000
 	
 			if (profileCtr)
 			{
@@ -635,8 +637,10 @@ void loop(void)
 			}
 			else
 			{
-				uint32_t diffTime = micros() - profileTime;
-				M5_LOGI("%d %.1f uS/sample" , diffTime, (float)diffTime /NUM_SAMPLES);
+				uint32_t timeUs = micros() - profileTime;
+				M5_LOGI("%d %.1f uS/sample" , timeUs, (float)timeUs /NUM_SAMPLES);
+	
+				M5_LOGI("%d %.1f samples/S" , timeUs, 1e6 * (float)NUM_SAMPLES/ timeUs);
 				profileTime = micros();
 				profileCtr = NUM_SAMPLES;
 			}
@@ -695,6 +699,16 @@ void loop(void)
 					   data.accel.z * data.accel.z);
 
 		float holdACC;
+
+		if (fft_index == FFT_INPUT_SIZE)
+		{
+			fft_index = 0;
+			
+			runFFT( FFT_SAMPLE_RATE_HZ, FFT_INPUT_SIZE, fft_input);
+		}
+		fft_input[fft_index++] = MAG_ACC;
+
+		
 		holdACC = (LAST_ACC < MAG_ACC) ? -MAG_ACC : MAG_ACC;
 
 		VELOCITY += holdACC;
