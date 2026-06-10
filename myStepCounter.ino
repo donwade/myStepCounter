@@ -1,14 +1,10 @@
-// If you use Unit OLED, write this.
-// #include <M5UnitOLED.h>
-
-// If you use Unit LCD, write this.
-// #include <M5UnitLCD.h>
-
-
 // Include this to enable the M5 global instance.
 #include <M5Unified.h>
 //#include <MahonyAHRS.h>
 #include <_RTC.h>
+
+//#include "stepConfig.cpp"
+void setup_stepCounter(void);
 
 // Strength of the calibration operation;
 // 0: disables calibration.
@@ -658,6 +654,9 @@ void setup(void)
 								TFT_GREEN, TFT_BLACK); 
 	delay(2000);
 	myRefreshString(textWindow, foo, "HI");
+	
+	setup_stepCounter();
+
 
 }
 

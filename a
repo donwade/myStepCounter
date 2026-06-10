@@ -1,2 +1,2 @@
-m5-stackS2 --log-debug
+m5-stackS2 --log-info
 
