@@ -3,8 +3,7 @@
 //#include <MahonyAHRS.h>
 #include <_RTC.h>
 
-//#include "stepConfig.cpp"
-void set_factoryDefaults(void);
+#include "stepConfig.h"
 
 // Strength of the calibration operation;
 // 0: disables calibration.
@@ -729,6 +728,7 @@ void loop(void)
 			M5_LOGI("|G| = %f  |A| = %f", MAG_GYRO, MAG_ACC);
 			M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
 			M5_LOGI("azim = %.1f  elev = %.1f ", azim, elev);
+			M5_LOGI("steps %d ", getStepsTaken());
 			M5_LOGI(" ");
 			
 			MAX_ACC = 0.0;

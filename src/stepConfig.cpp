@@ -101,7 +101,7 @@ void stepCountRegMapper(uint8_t scRegNumber, uint8_t &page, uint8_t &index)
 	if (page != lastPage)
 	{
 		log_i("changing page from 0x%X to 0x%X", lastPage, page);
-		M5.Imu.write8(FEAT_PAGE_ADDR ,page);
+		M5.Imu.write8(FEAT_PAGE_ADDR ,page, 1);
 		
 		lastPage = page;
 	}
@@ -113,7 +113,7 @@ void stepCountRegMapper(uint8_t scRegNumber, uint8_t &page, uint8_t &index)
 
 // must originate from enums SC_FEATURE, WAKEUP_FEATURE, GESTURE_FEATURE
 
-uint16_t readFeature( uint16_t enumReg)
+uint16_t readFeature( uint16_t enumReg , bool bQuiet)
 {	
 	uint16_t retval;
 	uint8_t page = enumReg >> 8;
@@ -122,16 +122,16 @@ uint16_t readFeature( uint16_t enumReg)
 	if (page != lastPage)
 	{
 		log_i("changing page from 0x%X to 0x%X", lastPage, page);
-		M5.Imu.write8(0x2F, page);
+		M5.Imu.write8(0x2F, page, bQuiet);
 		lastPage = page;
 	}
 	
-	retval = M5.Imu.read16(index, retval);
+	retval = M5.Imu.read16(index, retval, bQuiet);
 	return retval;
 }
 
 
-void writeFeature( uint16_t enumReg, uint16_t value)
+void writeFeature( uint16_t enumReg, uint16_t value, bool bQuiet)
 {
  	uint8_t page = enumReg >> 8;
 	uint8_t index = enumReg & 0xFF;
@@ -139,17 +139,17 @@ void writeFeature( uint16_t enumReg, uint16_t value)
 	if (page != lastPage)
 	{
 		log_i("changing page from 0x%X to 0x%X", lastPage, page);
-		M5.Imu.write8(0x2F, page);
+		M5.Imu.write8(0x2F, page, bQuiet);
 		lastPage = page;
 	}
-	uint16_t red = readFeature(enumReg);
+	uint16_t red = readFeature(enumReg, bQuiet);
 	log_i("1] {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
 	
-	M5.Imu.write16(index, value);
+	M5.Imu.write16(index, value, bQuiet);
 
 	log_i("2] {0x%04X} << 0x%4X %s", enumReg, value, showAsBinary(value));
 
-	red = readFeature(enumReg);
+	red = readFeature(enumReg, bQuiet);
 	log_i("3] {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
 
 }
@@ -157,7 +157,7 @@ void writeFeature( uint16_t enumReg, uint16_t value)
 
 // read modify write a field of bits for a feature.
 
-uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, uint16_t value)
+uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, bool bQuiet, uint16_t value, char *msg)
 {
 
 	assert ( RHS <= LHS);
@@ -171,8 +171,8 @@ uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, uint16_t value)
 
 	mask = mask << RHS;
 
-	log_i("---");	
-	log_i("LHS=%d RHS=%d width=%d mask=%s value=0x%X", LHS, RHS, width, showAsBinary(mask), value);
+	log_w("=== %s ===", msg );
+	log_i("{0x%04X} LHS=%d RHS=%d width=%d mask=%s value=0x%X", enumReg, LHS, RHS, width, showAsBinary(mask), value);
 
  	uint8_t page = enumReg >> 8;
 	uint8_t index = enumReg & 0xFF;
@@ -180,11 +180,11 @@ uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, uint16_t value)
 	if (page != lastPage)
 	{
 		log_i("changing page from 0x%X to 0x%X", lastPage, page);
-		M5.Imu.write8(0x2F, page);
+		M5.Imu.write8(0x2F, page, bQuiet);
 		lastPage = page;
 	}
 	
-	uint16_t red = readFeature(enumReg);
+	uint16_t red = readFeature(enumReg, bQuiet);
 
 	log_i("in  {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
 	red &= ~mask;
@@ -192,7 +192,7 @@ uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, uint16_t value)
 	log_i("out {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
 
 	
-	M5.Imu.write16(index, red);
+	M5.Imu.write16(index, red, bQuiet);
 
 	return red;
 	
@@ -217,7 +217,7 @@ void set_factoryDefaults(void)
 				page,
 				index); 
 		*/		
-		M5.Imu.write16(index , cmdSetup[j].value);
+		M5.Imu.write16(index , cmdSetup[j].value, 0);
  	}
 
 	/*
@@ -233,17 +233,20 @@ void set_factoryDefaults(void)
 	*/
 
 	
-	RMWFeature(SC_26, 11, 11, 1);  // enable detector
-	RMWFeature(SC_26, 12, 12, 1);  // enable counter
-	RMWFeature(SC_26, 13, 13, 1);  // enable walking, running etc 
-	RMWFeature(SC_26,  9,  0, 1);  // report on every 1 step
-	RMWFeature(SC_26, 10, 10, 1);  // reset on
+	RMWFeature(SC_26, 11, 11, 1, 1, "enable detector");
+	RMWFeature(SC_26, 12, 12, 1, 1, " enable counter");
+	RMWFeature(SC_26, 13, 13, 1, 1, " enable walking, running etc ");
+	RMWFeature(SC_26,  9,  0, 1, 1, " report on every 1 step");
+	RMWFeature(SC_26, 10, 10, 1, 1, " reset on");
 	delay(10);
-	RMWFeature(SC_26, 10, 10, 0);  // reset off
+	RMWFeature(SC_26, 10, 10, 0, 1, " out of reset");
 	
-
- 	//writeFeature(SC_1, 0xDEAD);  test
- 	
-	log_w("factory step counter defaults done -------------------");
+ 	log_w("factory step counter defaults done -------------------");
 }
 
+uint32_t getStepsTaken()
+{
+	uint16_t lo = readFeature(SC_OUT_0_1, 0);
+	uint16_t hi = readFeature(SC_OUT_2_3, 0);
+	return  (hi << 16) | lo;
+}
