@@ -1,2 +1,2 @@
-extern void setup_stepCounter(void);
+extern void set_factoryDefaults(void);
 

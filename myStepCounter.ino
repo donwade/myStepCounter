@@ -4,7 +4,7 @@
 #include <_RTC.h>
 
 //#include "stepConfig.cpp"
-void setup_stepCounter(void);
+void set_factoryDefaults(void);
 
 // Strength of the calibration operation;
 // 0: disables calibration.
@@ -551,35 +551,6 @@ void setup(void)
         }
     }
 
-	uint8_t ok = 0x10;
-	for (int j= 0; j < 6; j++)
-	{
-		uint8_t blah;
-		
-	    M5.Imu.read8(0x40, blah);
-	    M5_LOGW("rrrrrrrrrrrrrrrrrrrr %d 0x%X", blah, blah);
-
-	    M5.Imu.write8(0x40, ++ok);
-
-	    M5.Imu.read8(0x40, blah);
-	    M5_LOGW("RRRRRRRRRRRRRRRRRRRR %d 0x%X", blah, blah);
-	    delay(100);
-
-        /*
-		// read an array
-		uint16_t test[10];
-	    M5.Imu.readN(4, (uint8_t *) test, sizeof(test));
-	    M5_LOGW("pppppppppppppppppppp 0x%X 0x%04X 0x%04X 0x%04X 0x%04X 0x%04X  0x%04X 0x%04X 0x%04X 0x%04X",
-	    			test[0], test[1], 
-	    			test[2], test[3],
-	    			test[4], test[5], 
-	    			test[6], test[7],
-	    			test[8], test[9] );
-		*/
-
-	    M5_LOGW("  ");
-	}
-	
     int32_t displayWidth = display.width();
     int32_t displayHeight = display.height();
 
@@ -600,7 +571,7 @@ void setup(void)
     
     float fontsize = 3;
 
-    Serial.printf("graph height=%d text height = %d\n", graph_area_h, text_area_h);
+    //Serial.printf("graph height=%d text height = %d\n", graph_area_h, text_area_h);
     
     display.setTextSize(fontsize);
 
@@ -655,7 +626,7 @@ void setup(void)
 	delay(2000);
 	myRefreshString(textWindow, foo, "HI");
 	
-	setup_stepCounter();
+	set_factoryDefaults();
 
 
 }

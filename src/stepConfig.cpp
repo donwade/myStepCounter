@@ -153,25 +153,97 @@ void writeFeature( uint16_t enumReg, uint16_t value)
 	log_i("3] {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
 
 }
-//----------------------------------------------------------------------------
 
-void setup_stepCounter(void)
+
+// read modify write a field of bits for a feature.
+
+uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, uint16_t value)
+{
+
+	assert ( RHS <= LHS);
+
+	uint8_t width = LHS - RHS + 1;
+	uint16_t mask  = (1 << (width))-1;
+
+	assert (width < 16);
+	
+	assert (! (value & ~mask));  // value has bits outside of mask 
+
+	mask = mask << RHS;
+
+	log_i("---");	
+	log_i("LHS=%d RHS=%d width=%d mask=%s value=0x%X", LHS, RHS, width, showAsBinary(mask), value);
+
+ 	uint8_t page = enumReg >> 8;
+	uint8_t index = enumReg & 0xFF;
+
+	if (page != lastPage)
+	{
+		log_i("changing page from 0x%X to 0x%X", lastPage, page);
+		M5.Imu.write8(0x2F, page);
+		lastPage = page;
+	}
+	
+	uint16_t red = readFeature(enumReg);
+
+	log_i("in  {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
+	red &= ~mask;
+	red |= (value << RHS);
+	log_i("out {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
+
+	
+	M5.Imu.write16(index, red);
+
+	return red;
+	
+}
+
+//----------------------------------------------------------------------------
+// these are the values for programming a step counter.
+
+void set_factoryDefaults(void)
 {
 	uint8_t page;
 	uint8_t index;
+
+	log_w("setting factory step counter defaults -----------------------");
 	
 	for (int j = 0; j < ENTRIES(cmdSetup); j++)
 	{
 		stepCountRegMapper(cmdSetup[j].stepCtrRegNum, page,index);
 		
-		Serial.printf("$ stepCtrReg=%02d stepCtrPage=%d, stepCtrIndex=%02X\n", 
+		/*Serial.printf("\tstepCtrReg=%02d stepCtrPage=%d, stepCtrIndex=%02X\n", 
 				cmdSetup[j].stepCtrRegNum,
 				page,
 				index); 
-				
-		//M5.Imu.write16(cmdSetup[j].stepCtrRegNum + 0x2F , cmdSetup[j].value);
+		*/		
+		M5.Imu.write16(index , cmdSetup[j].value);
  	}
 
- 	writeFeature(SC_1, 0xDEAD);
+	/*
+	1. SC_26.watermark_level – watermark level; the step counter will trigger output every time specific number of
+	steps are counted
+	2. SC_26.reset_counter – flag to reset the counted steps. Step count value can be reset only when any one of
+	features mentioned in this register is enabled.
+	3. SC_26.en_counter – indicates if the Step Counter feature is enabled or not.
+	4. SC_26.en_detector – indicates if the Step Detector feature is enabled or not.
+	5. SC_26.en_activity – indicates if the activity feature is enabled or not
+	6. SC_1.param_1 to SC_25.param_25 – there are 25 parameters, which can customize the sensitivity of the Step
+	Counter and Detector.
+	*/
+
+	
+	RMWFeature(SC_26, 11, 11, 1);  // enable detector
+	RMWFeature(SC_26, 12, 12, 1);  // enable counter
+	RMWFeature(SC_26, 13, 13, 1);  // enable walking, running etc 
+	RMWFeature(SC_26,  9,  0, 1);  // report on every 1 step
+	RMWFeature(SC_26, 10, 10, 1);  // reset on
+	delay(10);
+	RMWFeature(SC_26, 10, 10, 0);  // reset off
+	
+
+ 	//writeFeature(SC_1, 0xDEAD);  test
+ 	
+	log_w("factory step counter defaults done -------------------");
 }
 
