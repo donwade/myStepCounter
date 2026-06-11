@@ -487,6 +487,8 @@ uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
 };
     
 
+uint32_t hStepCountDisp; 
+
 void setup(void)
 {
 
@@ -618,13 +620,10 @@ void setup(void)
 	// https://doc-tft-espi.readthedocs.io/tft_espi/datums/
  	M5.Lcd.setTextDatum(TC_DATUM);  // center on X
 
-	uint32_t foo = myDrawString(textWindow, "NOW", 
+	hStepCountDisp = myDrawString(textWindow, "READY", 
 								textWindow.width/2, textWindow.topLeftY, 
 								BIG_FONT, 2,
-								TFT_GREEN, TFT_BLACK); 
-	delay(2000);
-	myRefreshString(textWindow, foo, "HI");
-	
+								TFT_YELLOW, TFT_BLACK); 
 	set_factoryDefaults();
 
 
@@ -733,6 +732,25 @@ void loop(void)
 			
 			MAX_ACC = 0.0;
 			MIN_ACC = 0.0;
+		}
+
+		static uint32_t lastNumSteps;
+		uint32_t stepsNow = getStepsTaken();
+
+		if (lastNumSteps != stepsNow)
+		{
+			char msg[30];
+			sprintf(msg, "%d", stepsNow);
+			lastNumSteps = stepsNow;
+			myRefreshString(textWindow, hStepCountDisp, msg);
+		}
+
+		static uint16_t lastAction = -1;
+		uint16_t actionNow = getActivity();
+		if (lastAction != actionNow)
+		{
+			M5_LOGI("actionNow = %s", activity2string(actionNow));
+			lastAction = actionNow;
 		}
 #endif
 

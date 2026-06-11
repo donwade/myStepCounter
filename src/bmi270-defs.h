@@ -118,8 +118,9 @@ typedef enum PAGENUM
 
 typedef enum SC_FEATURE
 {
-     SC_OUT_0_1 = 0x30 + PAGE0,
-     SC_OUT_2_3 = 0x32 + PAGE0,
+     SC_OUT_0_1 = 0x30 + PAGE0,  // num steps lo word
+     SC_OUT_2_3 = 0x32 + PAGE0,  // num steps hi word
+     ACT_OUT = 0x34 + PAGE0,     // still, walking, running
      SC_1= 0x30 + PAGE3,
      SC_2= 0x32 + PAGE3,
      SC_3= 0x34 + PAGE3,
@@ -168,3 +169,4 @@ typedef enum GESTURE_FEATURE
     WR_GEST_3= 0x3A + PAGE6,
     WR_GEST_4= 0x3C + PAGE6,
 };
+

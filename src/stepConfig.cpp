@@ -212,11 +212,6 @@ void set_factoryDefaults(void)
 	{
 		stepCountRegMapper(cmdSetup[j].stepCtrRegNum, page,index);
 		
-		/*Serial.printf("\tstepCtrReg=%02d stepCtrPage=%d, stepCtrIndex=%02X\n", 
-				cmdSetup[j].stepCtrRegNum,
-				page,
-				index); 
-		*/		
 		M5.Imu.write16(index , cmdSetup[j].value, 0);
  	}
 
@@ -243,10 +238,22 @@ void set_factoryDefaults(void)
 	
  	log_w("factory step counter defaults done -------------------");
 }
-
+//-------------------------------------------------------------
 uint32_t getStepsTaken()
 {
-	uint16_t lo = readFeature(SC_OUT_0_1, 0);
-	uint16_t hi = readFeature(SC_OUT_2_3, 0);
+	uint16_t lo = readFeature(SC_OUT_0_1, 1);
+	uint16_t hi = readFeature(SC_OUT_2_3, 1);
 	return  (hi << 16) | lo;
 }
+//-------------------------------------------------------------
+uint8_t getActivity()
+{
+	return readFeature(ACT_OUT, 1);
+}
+//-------------------------------------------------------------
+const char* activity2string(uint8_t act)
+{
+	const char *msgs[] = {"still", "walking", "running", "unknown"};
+	return msgs[act];
+}
+
