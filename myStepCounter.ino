@@ -746,12 +746,13 @@ void loop(void)
 		static uint32_t lastNumSteps;
 		uint32_t stepsNow = getStepsTaken();
 		static uint16_t lastAction = -1;
-
+		static uint32_t keptSteps;
+		
 		char msg[30];
 		
 		if (lastNumSteps != stepsNow)
 		{
-			sprintf(msg, "%s %d", activity2string(lastAction), stepsNow);
+			sprintf(msg, "%d %s %d", keptSteps, activity2string(lastAction), stepsNow);
 			lastNumSteps = stepsNow;
 			myRefreshString(textWindow, hStepCountDisp, msg);
 		}
@@ -759,9 +760,15 @@ void loop(void)
 		uint16_t actionNow = getActivity();
 		if (lastAction != actionNow)
 		{
+		
+			if (actionNow == 0) 
+			{
+				keptSteps = lastNumSteps;
+				resetStepCtr();
+			}
 			M5_LOGI("actionNow = %s", activity2string(actionNow));
 			lastAction = actionNow;
-			sprintf(msg, "%s %d", activity2string(actionNow), lastNumSteps);
+			sprintf(msg, "%d %s %d", keptSteps, activity2string(actionNow), lastNumSteps);
 			myRefreshString(textWindow, hStepStatus, msg);
 		}
 #endif

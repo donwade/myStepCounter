@@ -1,5 +1,5 @@
 #include <M5Unified.h>
-//#include "stepConfig.h"
+#include "stepConfig.h"
 
 #include "src/bmi270-defs.h"
 /*
@@ -228,17 +228,24 @@ void set_factoryDefaults(void)
 	*/
 
 	
-	RMWFeature(SC_26, 11, 11, 1, 1, "enable detector");
+	//RMWFeature(SC_26, 11, 11, 1, 1, "enable detector");
 	RMWFeature(SC_26, 12, 12, 1, 1, " enable counter");
 	RMWFeature(SC_26, 13, 13, 1, 1, " enable walking, running etc ");
 	RMWFeature(SC_26,  9,  0, 1, 1, " report on every 1 step");
-	RMWFeature(SC_26, 10, 10, 1, 1, " reset on");
-	delay(10);
-	RMWFeature(SC_26, 10, 10, 0, 1, " out of reset");
+
+	resetStepCtr();
 	
  	log_w("factory step counter defaults done -------------------");
 }
 //-------------------------------------------------------------
+void resetStepCtr(void)
+{
+	RMWFeature(SC_26, 10, 10, 1, 1, " reset on");
+	delay(10);
+	RMWFeature(SC_26, 10, 10, 0, 1, " out of reset");
+}
+
+
 uint32_t getStepsTaken()
 {
 	uint16_t lo = readFeature(SC_OUT_0_1, 1);
