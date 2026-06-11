@@ -331,7 +331,7 @@ void startCalibration(void)
 
 void showRect(char *msg, window_t &reader)
 {
-	M5_LOGW("%s x=%d y=%d w=%d h=%d\n", msg, reader.topLeftX, reader.topLeftY, reader.width, reader.heigth);
+	M5_LOGW("%s x=%d y=%d w=%d h=%d", msg, reader.topLeftX, reader.topLeftY, reader.width, reader.heigth);
 }
 
 //-------------------------------------------------------------
@@ -488,6 +488,7 @@ uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
     
 
 uint32_t hStepCountDisp; 
+uint32_t hStepStatus;
 
 void setup(void)
 {
@@ -624,6 +625,14 @@ void setup(void)
 								textWindow.width/2, textWindow.topLeftY, 
 								BIG_FONT, 2,
 								TFT_YELLOW, TFT_BLACK); 
+
+	M5.Lcd.setTextSize(1);
+	hStepStatus = myDrawString(textWindow, "ok", 
+								textWindow.width/2, textWindow.topLeftY + textWindow.heigth *3/4, 
+								STATS_FONT, 1,
+								TFT_YELLOW, TFT_BLACK); 
+
+								
 	set_factoryDefaults();
 
 
@@ -736,21 +745,24 @@ void loop(void)
 
 		static uint32_t lastNumSteps;
 		uint32_t stepsNow = getStepsTaken();
+		static uint16_t lastAction = -1;
 
+		char msg[30];
+		
 		if (lastNumSteps != stepsNow)
 		{
-			char msg[30];
-			sprintf(msg, "%d", stepsNow);
+			sprintf(msg, "%s %d", activity2string(lastAction), stepsNow);
 			lastNumSteps = stepsNow;
 			myRefreshString(textWindow, hStepCountDisp, msg);
 		}
 
-		static uint16_t lastAction = -1;
 		uint16_t actionNow = getActivity();
 		if (lastAction != actionNow)
 		{
 			M5_LOGI("actionNow = %s", activity2string(actionNow));
 			lastAction = actionNow;
+			sprintf(msg, "%s %d", activity2string(actionNow), lastNumSteps);
+			myRefreshString(textWindow, hStepStatus, msg);
 		}
 #endif
 

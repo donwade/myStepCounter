@@ -253,6 +253,8 @@ uint8_t getActivity()
 //-------------------------------------------------------------
 const char* activity2string(uint8_t act)
 {
+	if (act > 3) return "---";
+	
 	const char *msgs[] = {"still", "walking", "running", "unknown"};
 	return msgs[act];
 }
