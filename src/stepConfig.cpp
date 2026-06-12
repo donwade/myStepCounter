@@ -37,6 +37,8 @@ char * showAsBinary ( T value)
 	}
 	return bin;
 }
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 
 
@@ -81,7 +83,17 @@ static STEP_ENTRY cmdSetup[]=
 #define ENTRIES(x) (sizeof (x) / sizeof(x[0]))
 //----------------------------------------------------------------------------
 
-static uint16_t lastPage = 0xFFFF;
+static void changeSCpage(uint8_t page, bool bQuiet)
+{
+	static uint16_t lastPage = 0xFFFF;
+	if (page != lastPage)
+	{
+		if (!bQuiet) log_i("changing page from 0x%X to 0x%X", lastPage, page);
+		M5.Imu.write8(0x2F, page, bQuiet);
+		lastPage = page;
+	}
+}
+
 
 // load up step counter configuration. all 25 register settings.
 // ONLY used for loading up the mfg table.
@@ -97,14 +109,7 @@ void stepCountRegMapper(uint8_t scRegNumber, uint8_t &page, uint8_t &index)
 	page  = zeroBased / 8 + 3;  		 // sc are kept in bank 3,4,5,6
 	
 	index = (zeroBased % 8) * 2 + 0x30; // sc are kept in regs 0x30..0x3E;
-
-	if (page != lastPage)
-	{
-		log_i("changing page from 0x%X to 0x%X", lastPage, page);
-		M5.Imu.write8(FEAT_PAGE_ADDR ,page, 1);
-		
-		lastPage = page;
-	}
+	changeSCpage(page, 1);
 
 }
 //-----------------------------------------------------------------------------
@@ -119,12 +124,7 @@ uint16_t readFeature( uint16_t enumReg , bool bQuiet)
 	uint8_t page = enumReg >> 8;
 	uint8_t index = enumReg & 0xFF;
 
-	if (page != lastPage)
-	{
-		log_i("changing page from 0x%X to 0x%X", lastPage, page);
-		M5.Imu.write8(0x2F, page, bQuiet);
-		lastPage = page;
-	}
+	changeSCpage(page, bQuiet);
 	
 	retval = M5.Imu.read16(index, retval, bQuiet);
 	return retval;
@@ -136,12 +136,8 @@ void writeFeature( uint16_t enumReg, uint16_t value, bool bQuiet)
  	uint8_t page = enumReg >> 8;
 	uint8_t index = enumReg & 0xFF;
 
-	if (page != lastPage)
-	{
-		log_i("changing page from 0x%X to 0x%X", lastPage, page);
-		M5.Imu.write8(0x2F, page, bQuiet);
-		lastPage = page;
-	}
+	changeSCpage(page, bQuiet);
+
 	uint16_t red = readFeature(enumReg, bQuiet);
 	log_i("1] {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
 	
@@ -157,7 +153,8 @@ void writeFeature( uint16_t enumReg, uint16_t value, bool bQuiet)
 
 // read modify write a field of bits for a feature.
 
-uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, bool bQuiet, uint16_t value, char *msg)
+uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, 
+					 bool bQuiet, uint16_t value, char *msg)
 {
 
 	assert ( RHS <= LHS);
@@ -171,25 +168,21 @@ uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, bool bQuiet, ui
 
 	mask = mask << RHS;
 
-	log_w("=== %s ===", msg );
-	log_i("{0x%04X} LHS=%d RHS=%d width=%d mask=%s value=0x%X", enumReg, LHS, RHS, width, showAsBinary(mask), value);
-
  	uint8_t page = enumReg >> 8;
 	uint8_t index = enumReg & 0xFF;
 
-	if (page != lastPage)
-	{
-		log_i("changing page from 0x%X to 0x%X", lastPage, page);
-		M5.Imu.write8(0x2F, page, bQuiet);
-		lastPage = page;
-	}
-	
+	changeSCpage(page, bQuiet);
+
 	uint16_t red = readFeature(enumReg, bQuiet);
 
-	log_i("in  {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
+	if(!bQuiet) log_i("in  {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
 	red &= ~mask;
 	red |= (value << RHS);
-	log_i("out {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
+	if (!bQuiet) log_i("out {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
+
+	// show final result
+	log_w("=== %s ===", msg );
+	log_i("{0x%04X} LHS=%d RHS=%d width=%d value=0x%X result=%s", enumReg, LHS, RHS, width, value, showAsBinary(red));
 
 	
 	M5.Imu.write16(index, red, bQuiet);
@@ -199,33 +192,47 @@ uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS, bool bQuiet, ui
 }
 
 //----------------------------------------------------------------------------
-// these are the values for programming a step counter.
+#include <nvs_flash.h>
+void eraseNV(void)
+{
+	nvs_flash_erase();
+	nvs_flash_init();
+	log_i("NV flash erased ... rebooting");
+	delay(3000);
+	ESP.restart();
+}
+//----------------------------------------------------------------------------
 
-void set_factoryDefaults(void)
+/*
+1. SC_26.watermark_level – watermark level; the step counter will trigger output every time specific number of
+steps are counted
+2. SC_26.reset_counter – flag to reset the counted steps. Step count value can be reset only when any one of
+features mentioned in this register is enabled.
+3. SC_26.en_counter – indicates if the Step Counter feature is enabled or not.
+4. SC_26.en_detector – indicates if the Step Detector feature is enabled or not.
+5. SC_26.en_activity – indicates if the activity feature is enabled or not
+6. SC_1.param_1 to SC_25.param_25 – there are 25 parameters, which can customize the sensitivity of the Step
+Counter and Detector.
+*/
+
+
+// these are the values for programming a step counter.
+#include <Preferences.h>
+
+void load_factoryDefaultsFromROM(void)
 {
 	uint8_t page;
 	uint8_t index;
 
-	log_w("setting factory step counter defaults -----------------------");
-	
+	log_w("%s: setting factory SC defaults -----------------------", __FUNCTION__);
+
 	for (int j = 0; j < ENTRIES(cmdSetup); j++)
 	{
 		stepCountRegMapper(cmdSetup[j].stepCtrRegNum, page,index);
-		
-		M5.Imu.write16(index , cmdSetup[j].value, 0);
+		log_w("[SC=%d]  page %02d index 0x%X <= %6d (ROM)", 
+			  cmdSetup[j].stepCtrRegNum, page, index, cmdSetup[j].value);
+		M5.Imu.write16(index , cmdSetup[j].value, 1);
  	}
-
-	/*
-	1. SC_26.watermark_level – watermark level; the step counter will trigger output every time specific number of
-	steps are counted
-	2. SC_26.reset_counter – flag to reset the counted steps. Step count value can be reset only when any one of
-	features mentioned in this register is enabled.
-	3. SC_26.en_counter – indicates if the Step Counter feature is enabled or not.
-	4. SC_26.en_detector – indicates if the Step Detector feature is enabled or not.
-	5. SC_26.en_activity – indicates if the activity feature is enabled or not
-	6. SC_1.param_1 to SC_25.param_25 – there are 25 parameters, which can customize the sensitivity of the Step
-	Counter and Detector.
-	*/
 
 	
 	//RMWFeature(SC_26, 11, 11, 1, 1, "enable detector");
@@ -236,15 +243,73 @@ void set_factoryDefaults(void)
 	resetStepCtr();
 	
  	log_w("factory step counter defaults done -------------------");
+
+ 	
+}
+//-------------------------------------------------------------
+
+void load_factoryFromNV(void)
+{
+
+	// Create an instance of the Preferences library
+	Preferences myNV;
+	
+	// Open NVS namespace named "storage". 
+	// False means read/write mode. True means read-only.
+	// Note: Namespace names must be 15 characters or less!
+	myNV.begin("BMI270", false);
+
+	//------------------------
+	// 1. READ DATA
+	// Get the counter value. If it doesn't exist yet, return a default value of 0.
+	unsigned int counter = myNV.getUInt("counter", 0);
+
+	// Get the SSID string. If it doesn't exist, return an empty string.
+	String ssid = myNV.getString("wifi_ssid", "Not Set");
+	//------------------------
+
+	// Print retrieved data
+	Serial.print("Current Boot Count: ");
+	Serial.println(counter);
+	Serial.print("Stored WiFi SSID: ");
+	Serial.println(ssid);
+
+	// 2. MODIFY & WRITE DATA
+	counter++; // Increment boot count
+	myNV.putUInt("counter", counter);
+
+	// Example of saving or updating a string if it matches the default
+	if (ssid == "Not Set") 
+	{
+		Serial.println("Saving new WiFi SSID to NVS...");
+		myNV.putString("wifi_ssid", "Home_Network");
+	}
+
+	// Always close the myNV to release resources
+	myNV.end();
+
+	
+	Serial.println("Data updated. Restarting ESP32 in 5 seconds...\n");
+	delay(5000);
+	ESP.restart(); // Restart to see the counter increase
+
+}
+
+//-------------------------------------------------------------
+void set_factoryDefaults(void)
+{
+	load_factoryDefaultsFromROM();
 }
 //-------------------------------------------------------------
 void resetStepCtr(void)
 {
 	RMWFeature(SC_26, 10, 10, 1, 1, " reset on");
 	delay(10);
-	RMWFeature(SC_26, 10, 10, 0, 1, " out of reset");
+	RMWFeature(SC_26, 10, 10, 1, 1, " out of reset");
+	delay(10);
 }
 
+//-------------------------------------------------------------
 
 uint32_t getStepsTaken()
 {

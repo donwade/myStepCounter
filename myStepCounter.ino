@@ -198,45 +198,6 @@ void drawImuStats(const window_t& r, const m5::imu_data_t& imuDirect)
 
 //---------------------------------------------------------------------
 
-#if 0 // USELESS
-
-#include <MahonyAHRS.h>
-Mahony filter;
-
-inline float  DEGREES(float x) { return (x * 180. / 3.14159);}
-
-void showMahony(float fGx,float fGy, float fGz)
-{
-  int ax, ay, az;
-  int gx, gy, gz;
-
-  float roll, pitch, yaw;
-
-  // Update the Mahony filter, with scaled gyroscope
-  float gyroScale =  1;  // TODO: the filter updates too fast
-  filter.updateIMU(DEGREES(fGx * gyroScale),
-  				   DEGREES(fGy * gyroScale),
-  				   DEGREES(fGz * gyroScale),
-  				   ax, ay, az);
-
-  static uint32_t ticker;
-  if (millis() > ticker)
-  {
-    ticker = millis() + 1000;
-    // print the yaw, pitch and roll
-    roll = filter.getRoll();
-    pitch = filter.getPitch();
-    yaw = filter.getYaw();
-    Serial.printf("yaw = %+5.1f pitch = %+5.1f roll = %+5.1f\n", yaw, pitch, roll);
-  }
-
-} 
-#endif
-
-//---------------------------------------------------------------------
-//---------------------------------------------------------------------
-//---------------------------------------------------------------------
-
 void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
 {
     calib_countdown = uCalCount;
