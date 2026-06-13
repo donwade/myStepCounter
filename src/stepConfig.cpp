@@ -288,6 +288,77 @@ void writeFactoryNv(bool bQuiet)
 
 }
 
+//-------------------------------------------------------------
+
+bool restoreFromFactoryNv(bool bQuiet)
+{
+
+	// Create an instance of the Preferences library
+	Preferences myNV;
+
+	// Open NVS namespace named "BMI270". 
+	// False means read/write mode. True means read-only.
+	// Note: Namespace names must be 15 characters or less!
+	myNV.begin("BMI270", false);
+
+	// test from nothing    myNV.clear();
+
+	// test to see if all keys are in place, else fail out return = true;
+
+	char cKey[40];
+	uint16_t scWriteVal, uKeyRead;
+	uint8_t page, index;
+	
+	
+	for (int stepRegister = 1; stepRegister < 26; stepRegister ++)
+	{
+		SCnum2physical(stepRegister, page,index);
+		sprintf(cKey, "SC-%d", stepRegister);
+		if (myNV.isKey(cKey))
+		{
+			log_d("testing key %s pass", cKey);
+			continue;
+		}
+		log_e("cannot restore from NV, not all keys present");
+ 		
+		// Always close the myNV to release resources
+		myNV.end();
+		return 1; // fail
+		
+ 	}
+ 	
+	for (int stepRegister = 1; stepRegister < 26; stepRegister ++)
+	{
+		char cKey[40];
+		uint16_t scWriteVal, uKeyRead;
+		uint8_t page, index;
+		
+		SCnum2physical(stepRegister, page,index);
+		sprintf(cKey, "SC-%d", stepRegister);
+		
+		if (myNV.isKey(cKey))
+		{
+			uKeyRead = myNV.getUShort(cKey, scWriteVal); // if key doesn't exist, force value.
+			log_w("[SC=%d]	page %02d index 0x%X <= %6d (NV)", 
+				  stepRegister, page, index, uKeyRead);
+			M5.Imu.write16(index , uKeyRead, 1);
+		}
+		else
+		{
+			// earlier test should have caught this. game over.
+			assert(stepRegister != stepRegister);
+
+			delay(10000);
+			ESP.restart(); // Restart to see the counter increase
+		}
+	}
+
+	// Always close the myNV to release resources
+	myNV.end();
+	return 0;    //success
+	
+}
+
 void load_factoryDefaultsFromROM(void)
 {
 	uint8_t page;
@@ -302,7 +373,22 @@ void load_factoryDefaultsFromROM(void)
 			  cmdSetup[j].stepCtrRegNum, page, index, cmdSetup[j].value);
 		M5.Imu.write16(index , cmdSetup[j].value, 1);
  	}
+	
+ 	log_w("factory step counter defaults done -------------------");
 
+ 	
+}
+
+//-------------------------------------------------------------
+void set_factoryDefaults(void)
+{
+
+	if (restoreFromFactoryNv(0))
+	{
+		// error was found loading from NV
+		load_factoryDefaultsFromROM();
+		writeFactoryNv(0);
+	}
 	
 	//RMWFeature(SC_26, 11, 11, 1, 1, "enable detector");
 	RMWFeature(SC_26, 12, 12, 1, 1, " enable counter");
@@ -310,17 +396,6 @@ void load_factoryDefaultsFromROM(void)
 	RMWFeature(SC_26,  9,  0, 1, 1, " report on every 1 step");
 
 	resetStepCtr();
-	
- 	log_w("factory step counter defaults done -------------------");
-
- 	writeFactoryNv(0);
- 	
-}
-
-//-------------------------------------------------------------
-void set_factoryDefaults(void)
-{
-	load_factoryDefaultsFromROM();
 }
 //-------------------------------------------------------------
 void resetStepCtr(void)
