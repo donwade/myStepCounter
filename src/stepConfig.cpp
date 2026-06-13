@@ -1,4 +1,6 @@
 #include <M5Unified.h>
+#include <Preferences.h>
+
 #include "stepConfig.h"
 
 #include "src/bmi270-defs.h"
@@ -20,6 +22,8 @@ features mentioned in this register is enabled.
 6. SC_1.param_1 to SC_25.param_25 – there are 25 parameters, 
    which can customize the sensitivity of the Step
 */
+
+Preferences myNv;
 
 // from the BMI250 doc for a pedometer.
 char bin[65+7];  // max 64 bit plus zero terminator plus some dots
@@ -98,7 +102,7 @@ static void changeSCpage(uint8_t page, bool bQuiet)
 // load up step counter configuration. all 25 register settings.
 // ONLY used for loading up the mfg table.
 
-void stepCountRegMapper(uint8_t scRegNumber, uint8_t &page, uint8_t &index)
+void SCnum2physical(uint8_t scRegNumber, uint8_t &page, uint8_t &index)
 {
 	
 	assert(scRegNumber > 0 && scRegNumber < 28);
@@ -218,6 +222,71 @@ Counter and Detector.
 
 // these are the values for programming a step counter.
 #include <Preferences.h>
+#include "esp_partition.h"
+//-------------------------------------------------------------
+
+void writeFactoryNv(bool bQuiet)
+{
+
+	// Create an instance of the Preferences library
+	Preferences myNV;
+
+	// Open NVS namespace named "BMI270". 
+	// False means read/write mode. True means read-only.
+	// Note: Namespace names must be 15 characters or less!
+	myNV.begin("BMI270", false);
+
+	// test from nothing    myNV.clear();
+	
+	for (int stepRegister = 1; stepRegister < 26; stepRegister ++)
+	{
+		char cKey[40];
+		uint16_t scWriteVal, uKeyRead;
+		uint8_t page, index;
+		
+		SCnum2physical(stepRegister, page,index);
+		sprintf(cKey, "SC-%d", stepRegister);
+
+		//log_w("reading ... key %s does %s exist", cKey, !myNV.isKey(cKey) ? "NOT":"");
+		//uKeyRead = myNv.getUShort(cKey, 0);
+		//log_w("read of %s finds %d", cKey, uKeyRead);
+		
+		scWriteVal = M5.Imu.read16(index, scWriteVal, 1);
+
+		if (myNV.isKey(cKey))
+		{
+			uKeyRead = myNV.getUShort(cKey, scWriteVal); // if key doesn't exist, force value.
+			if (uKeyRead != scWriteVal)
+			{
+				log_w("difference in %s values %d vs %d ... updating", cKey, uKeyRead, scWriteVal);
+				assert( myNV.putUShort(cKey, scWriteVal) == 2); // 2 bytes should be written.
+			}
+			else
+			{
+				log_w("skipping %s values identical %d", cKey, uKeyRead);
+			}
+		}
+		else
+		{
+			log_w("making new key %s = %d", cKey, scWriteVal);
+			uKeyRead = myNV.getUShort(cKey, scWriteVal); // if key doesn't exist, force value.
+			assert( myNV.putUShort(cKey, scWriteVal) == 2); // 2 bytes should be written.
+		}
+
+		Serial.println("===========");
+		
+ 	}
+
+
+	// Always close the myNV to release resources
+	myNV.end();
+
+	
+	//Serial.println("Data updated. Restarting ESP32 in 10 seconds...\n");
+	//delay(10000);
+	//ESP.restart(); // Restart to see the counter increase
+
+}
 
 void load_factoryDefaultsFromROM(void)
 {
@@ -228,7 +297,7 @@ void load_factoryDefaultsFromROM(void)
 
 	for (int j = 0; j < ENTRIES(cmdSetup); j++)
 	{
-		stepCountRegMapper(cmdSetup[j].stepCtrRegNum, page,index);
+		SCnum2physical(cmdSetup[j].stepCtrRegNum, page,index);
 		log_w("[SC=%d]  page %02d index 0x%X <= %6d (ROM)", 
 			  cmdSetup[j].stepCtrRegNum, page, index, cmdSetup[j].value);
 		M5.Imu.write16(index , cmdSetup[j].value, 1);
@@ -244,55 +313,8 @@ void load_factoryDefaultsFromROM(void)
 	
  	log_w("factory step counter defaults done -------------------");
 
+ 	writeFactoryNv(0);
  	
-}
-//-------------------------------------------------------------
-
-void load_factoryFromNV(void)
-{
-
-	// Create an instance of the Preferences library
-	Preferences myNV;
-	
-	// Open NVS namespace named "storage". 
-	// False means read/write mode. True means read-only.
-	// Note: Namespace names must be 15 characters or less!
-	myNV.begin("BMI270", false);
-
-	//------------------------
-	// 1. READ DATA
-	// Get the counter value. If it doesn't exist yet, return a default value of 0.
-	unsigned int counter = myNV.getUInt("counter", 0);
-
-	// Get the SSID string. If it doesn't exist, return an empty string.
-	String ssid = myNV.getString("wifi_ssid", "Not Set");
-	//------------------------
-
-	// Print retrieved data
-	Serial.print("Current Boot Count: ");
-	Serial.println(counter);
-	Serial.print("Stored WiFi SSID: ");
-	Serial.println(ssid);
-
-	// 2. MODIFY & WRITE DATA
-	counter++; // Increment boot count
-	myNV.putUInt("counter", counter);
-
-	// Example of saving or updating a string if it matches the default
-	if (ssid == "Not Set") 
-	{
-		Serial.println("Saving new WiFi SSID to NVS...");
-		myNV.putString("wifi_ssid", "Home_Network");
-	}
-
-	// Always close the myNV to release resources
-	myNV.end();
-
-	
-	Serial.println("Data updated. Restarting ESP32 in 5 seconds...\n");
-	delay(5000);
-	ESP.restart(); // Restart to see the counter increase
-
 }
 
 //-------------------------------------------------------------

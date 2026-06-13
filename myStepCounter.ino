@@ -215,7 +215,7 @@ void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
 
         if (uCalCount)
         { 
-        	M5.Speaker.tone(2000, 300);
+        	//M5.Speaker.tone(2000, 300);
         	delay(1000);
         	
         	// Start calibration.
@@ -239,9 +239,9 @@ void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
         else
         { 
         	// Stop calibration. (Continue calibration only for the geomagnetic sensor)
-        	M5.Speaker.tone(2000, 200);
-        	delay(200);
-        	M5.Speaker.tone(1000, 200);
+        	//M5.Speaker.tone(2000, 200);
+        	//delay(200);
+        	//M5.Speaker.tone(1000, 200);
 
  			Serial.printf("stop  calibration ... depth = %d of 255 time = %d mS\n", calDepth, millis()-stopwatch);
             M5.Imu.setCalibration(0, //accel
@@ -278,7 +278,7 @@ void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
         display.setTextColor(TFT_WHITE, TFT_BLUE);
         display.printf("Countdown:%d ", uCalCount);
 
-		M5.Speaker.tone(900, 100);
+		//M5.Speaker.tone(900, 100);
     }
 }
 
@@ -559,8 +559,8 @@ void setup(void)
 
     M5_LOGW("IMU displayHeight/displayWidth type :%s", name);
     
+	/*	
 	M5_LOGW("checking NVS");
-	
     if (M5.Imu.loadOffsetFromNVS())
     {
     	M5_LOGW("Loading data found NVS ... skipping cal");
@@ -570,7 +570,7 @@ void setup(void)
     	M5_LOGW("Nothing found in NVS");
         startCalibration();
     }
-
+*/
 
 
 	
