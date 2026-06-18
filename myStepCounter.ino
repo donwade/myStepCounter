@@ -52,13 +52,13 @@ typedef struct text_t  // size of printed text
 
 struct window_t
 {
-    int32_t topLeftX;
-    int32_t topLeftY;
-    int32_t width;
-    int32_t heigth;
-    uint32_t textForegndC;
-    uint32_t textBackgndC;
-    uint32_t boarderC;
+    int32_t win_topLeftX;
+    int32_t win_topLeftY;
+    int32_t win_width;
+    int32_t win_heigth;
+    uint32_t win_textForegndC;
+    uint32_t win_textBackgndC;
+    uint32_t win_boarderC;
     text_t tinfo[8];
 };
 
@@ -149,11 +149,11 @@ void drawBar(int32_t midLeftX, int32_t midLeftY, int32_t newAcross, int32_t oldA
 
 void drawImuStats(const window_t& r, const m5::imu_data_t& imuDirect)
 {
-    int midPointX = r.topLeftX + r.width/2;  // move to horizontal center point.
-    int topLeftY = r.topLeftY;
+    int midPointX = r.win_topLeftX + r.win_width/2;  // move to horizontal center point.
+    int topLeftY = r.win_topLeftY;
         
     int bar_count = numSensorsInIMU * numItemsPerSensor;  //0,1,2 accel xyz  4,5,6 gyro xyz
-    int barThick = r.heigth/ bar_count; 
+    int barThick = r.win_heigth/ bar_count; 
 
     display.startWrite();
 
@@ -165,14 +165,14 @@ void drawImuStats(const window_t& r, const m5::imu_data_t& imuDirect)
     {
         float xval;
 
-		auto coe = coefficient_tbl[barNum / 3] * r.width;
+		auto coe = coefficient_tbl[barNum / 3] * r.win_width;
 		xval = imuDirect.value[barNum] * coe;
  
 
         int newWidth = xval;
         int oldWidth = prev_xpos[barNum];
 
-        int maxw = r.width/2 -1;
+        int maxw = r.win_width/2 -1;
         
         if (newWidth < -maxw )
         	newWidth = -maxw;
@@ -266,15 +266,15 @@ void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
     auto backcolor = (uCalCount == 0) ? TFT_BLACK : TFT_BLUE;
 
 	// clear text window.
-    display.fillRect(textWindow.topLeftX,
-    				 textWindow.topLeftY, 
-    				 textWindow.width, 
-    				 textWindow.heigth, 
+    display.fillRect(textWindow.win_topLeftX,
+    				 textWindow.win_topLeftY, 
+    				 textWindow.win_width, 
+    				 textWindow.win_heigth, 
     				 backcolor);
 
     if (uCalCount)
     {
-        display.setCursor(textWindow.topLeftX + 2, textWindow.topLeftY + 1);
+        display.setCursor(textWindow.win_topLeftX + 2, textWindow.win_topLeftY + 1);
         display.setTextColor(TFT_WHITE, TFT_BLUE);
         display.printf("Countdown:%d ", uCalCount);
 
@@ -292,7 +292,7 @@ void startCalibration(void)
 
 void showRect(char *msg, window_t &reader)
 {
-	M5_LOGW("%s x=%d y=%d w=%d h=%d", msg, reader.topLeftX, reader.topLeftY, reader.width, reader.heigth);
+	M5_LOGW("%s x=%d y=%d w=%d h=%d", msg, reader.win_topLeftX, reader.win_topLeftY, reader.win_width, reader.win_heigth);
 }
 
 //-------------------------------------------------------------
@@ -348,24 +348,24 @@ double elevation(Point3D target) {
 //-------------------------------------------------------------
 void makeWindow(window_t &win, int8_t boarder)
 {
-	display.fillRect(win.topLeftX, win.topLeftY, 
-					 win.width, win.heigth, 
-					 win.boarderC);
+	display.fillRect(win.win_topLeftX, win.win_topLeftY, 
+					 win.win_width, win.win_heigth, 
+					 win.win_boarderC);
 
 	showRect("in",  win);
 
 	// boarder < 0. shrink ... > 0 grow
 	
-	win.heigth 		+= boarder * 2;
-	win.width 		+= boarder * 2;
-	win.topLeftX 	-= boarder;   // <0 = shrinking,  move in + dir
-	win.topLeftY 	-= boarder;
+	win.win_heigth 		+= boarder * 2;
+	win.win_width 		+= boarder * 2;
+	win.win_topLeftX 	-= boarder;   // <0 = shrinking,  move in + dir
+	win.win_topLeftY 	-= boarder;
 	
 	showRect("out",  win);
 #if 1
-	display.fillRect(win.topLeftX, win.topLeftY, 
-					 win.width, win.heigth, 
-					 win.textBackgndC);
+	display.fillRect(win.win_topLeftX, win.win_topLeftY, 
+					 win.win_width, win.win_heigth, 
+					 win.win_textBackgndC);
 
 #endif
 	display.display();
@@ -390,6 +390,9 @@ uint32_t  myDrawString(window_t &window,
 						uint32_t fgColour, uint32_t bgColour
 						)
 {
+	static uint8_t nextIndex;
+	assert ( nextIndex < 8);
+	
 	if (bgColour != TFT_BLACK )
 	{
 		M5_LOGW("only TFT_BLACK supported for background");
@@ -400,56 +403,76 @@ uint32_t  myDrawString(window_t &window,
 
 	M5.Lcd.setTextSize(size);
 	M5.Lcd.drawString(msg, topX, topY, font); 
-	window.tinfo[0].heigth = M5.Lcd.fontHeight(font) + VSPACE;
-	window.tinfo[0].width = M5.Lcd.textWidth(msg);
-	window.tinfo[0].topLeftX = topX;
-	window.tinfo[0].topLeftY = topY;
-	window.tinfo[0].font = font;
-	window.tinfo[0].tsize = size;
-	window.tinfo[0].bgColor = bgColour;
-	window.tinfo[0].fgColor = fgColour;
+	window.tinfo[nextIndex].heigth = M5.Lcd.fontHeight(font) + VSPACE;
+	window.tinfo[nextIndex].width = M5.Lcd.textWidth(msg);
+	window.tinfo[nextIndex].topLeftX = topX;
+	window.tinfo[nextIndex].topLeftY = topY;
+	window.tinfo[nextIndex].font = font;
+	window.tinfo[nextIndex].tsize = size;
+	window.tinfo[nextIndex].bgColor = bgColour;
+	window.tinfo[nextIndex].fgColor = fgColour;
 	
-	strncpy(window.tinfo[0].msg, msg, sizeof(window.tinfo[0].msg));
-	window.tinfo[0].handle = micros();
+	strncpy(window.tinfo[nextIndex].msg, msg, sizeof(window.tinfo[nextIndex].msg));
+	window.tinfo[nextIndex].handle = micros();
 	display.display();
+
+	nextIndex++;
 	
-	return window.tinfo[0].handle;
+	return window.tinfo[nextIndex-1].handle;
 };
 
 uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
 {
 
-	if (window.tinfo[0].handle)
+	int i; 
+	int cnt = sizeof(window.tinfo)/sizeof(window.tinfo[0]);
+	for (i = 0; i < cnt ; i++)
+	{
+		if (handle == window.tinfo[i].handle) break;
+	}
+	
+	if ( i == cnt)
+	{
+		M5_LOGE("bad handle passed in ... ignoring");
+		return 0;
+	}
+
+	M5_LOGD("recovered index %d from handle %d", i, handle);
+	// if the old and new string are different, erase old.
+
+	M5.Lcd.setTextSize( window.tinfo[i].tsize);
+
+	if (strcmp(msg, window.tinfo[i].msg))
 	{
 		// erase previous
-		M5.Lcd.setTextColor(window.tinfo[0].bgColor, window.tinfo[0].bgColor);
+		M5.Lcd.setTextColor(window.tinfo[i].bgColor, window.tinfo[i].bgColor);
 	
-		M5.Lcd.setTextSize( window.tinfo[0].tsize);
-		
-		M5.Lcd.drawString(window.tinfo[0].msg, 
-						  window.tinfo[0].topLeftX, window.tinfo[0].topLeftY,
-						  window.tinfo[0].font); 
+		M5.Lcd.drawString(window.tinfo[i].msg, 
+						  window.tinfo[i].topLeftX, window.tinfo[i].topLeftY,
+						  window.tinfo[i].font); 
+		M5_LOGD("erase old text \"%s\"", window.tinfo[i].msg);
 	}
 	
 	//display.display();
 	//delay(4000);
+	//M5.Lcd.setTextColor(TFT_RED, TFT_BLACK);
 	
-	M5.Lcd.setTextColor(TFT_RED, TFT_BLACK);
-	M5.Lcd.setTextColor(window.tinfo[0].fgColor, window.tinfo[0].bgColor);
+	M5.Lcd.setTextColor(window.tinfo[i].fgColor, window.tinfo[i].bgColor);
 	
-	M5.Lcd.drawString(msg, window.tinfo[0].topLeftX, window.tinfo[0].topLeftY,
-						 window.tinfo[0].font); 
-	window.tinfo[0].width = M5.Lcd.textWidth(msg);
+	M5.Lcd.drawString(msg, window.tinfo[i].topLeftX, window.tinfo[i].topLeftY,
+						 window.tinfo[i].font); 
+						 
+	strncpy(window.tinfo[i].msg, msg, sizeof(window.tinfo[i].msg));
 
-	strncpy(window.tinfo[0].msg, msg, sizeof(window.tinfo[0].msg));
+	M5_LOGD("paint new \"%s\"", window.tinfo[i].msg);
 	
 	display.display();
-	return window.tinfo[0].handle;
+	return window.tinfo[i].handle;
 };
     
 
-uint32_t hStepCountDisp; 
-uint32_t hStepStatus;
+uint32_t hLargeStep; 
+uint32_t hStatusStep;
 
 void setup(void)
 {
@@ -582,14 +605,14 @@ void setup(void)
 	// https://doc-tft-espi.readthedocs.io/tft_espi/datums/
  	M5.Lcd.setTextDatum(TC_DATUM);  // center on X
 
-	hStepCountDisp = myDrawString(textWindow, "READY", 
-								textWindow.width/2, textWindow.topLeftY, 
+	hLargeStep = myDrawString(textWindow, "GO!", 
+								textWindow.win_width/2, textWindow.win_topLeftY, 
 								BIG_FONT, 2,
 								TFT_YELLOW, TFT_BLACK); 
 
 	M5.Lcd.setTextSize(1);
-	hStepStatus = myDrawString(textWindow, "ok", 
-								textWindow.width/2, textWindow.topLeftY + textWindow.heigth *3/4, 
+	hStatusStep = myDrawString(textWindow, "ok", 
+								textWindow.win_width/2, textWindow.win_topLeftY + textWindow.win_heigth *3/4, 
 								STATS_FONT, 1,
 								TFT_YELLOW, TFT_BLACK); 
 
@@ -715,7 +738,7 @@ void loop(void)
 		{
 			sprintf(msg, "%d %s %d", keptSteps, activity2string(lastAction), stepsNow);
 			lastNumSteps = stepsNow;
-			myRefreshString(textWindow, hStepCountDisp, msg);
+			myRefreshString(textWindow, hStatusStep, msg);
 		}
 
 		uint16_t actionNow = getActivity();
@@ -728,9 +751,13 @@ void loop(void)
 				resetStepCtr();
 			}
 			M5_LOGI("actionNow = %s", activity2string(actionNow));
+
 			lastAction = actionNow;
 			sprintf(msg, "%d %s %d", keptSteps, activity2string(actionNow), lastNumSteps);
-			myRefreshString(textWindow, hStepStatus, msg);
+			myRefreshString(textWindow, hStatusStep, msg);
+
+			sprintf(msg, "%d", keptSteps);
+			myRefreshString(textWindow,hLargeStep, msg); 
 		}
 #endif
 
