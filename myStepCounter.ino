@@ -2,6 +2,7 @@
 #include <M5Unified.h>
 //#include <MahonyAHRS.h>
 #include <_RTC.h>
+#include <_OTAUpload.h>
 
 #include "stepConfig.h"
 
@@ -471,8 +472,8 @@ uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
 };
     
 
-uint32_t hLargeStep; 
-uint32_t hStatusStep;
+uint32_t hLargeTextArea; 
+uint32_t hSmallTextArea;
 
 void setup(void)
 {
@@ -605,14 +606,14 @@ void setup(void)
 	// https://doc-tft-espi.readthedocs.io/tft_espi/datums/
  	M5.Lcd.setTextDatum(TC_DATUM);  // center on X
 
-	hLargeStep = myDrawString(textWindow, "GO!", 
+	hLargeTextArea = myDrawString(textWindow, "GO!", 
 								textWindow.win_width/2, textWindow.win_topLeftY, 
 								BIG_FONT, 2,
 								TFT_YELLOW, TFT_BLACK); 
 
 	M5.Lcd.setTextSize(1);
-	hStatusStep = myDrawString(textWindow, "ok", 
-								textWindow.win_width/2, textWindow.win_topLeftY + textWindow.win_heigth *3/4, 
+	hSmallTextArea = myDrawString(textWindow, "ok", 
+								textWindow.win_width/2, textWindow.win_topLeftY + textWindow.win_heigth *8/10, 
 								STATS_FONT, 1,
 								TFT_YELLOW, TFT_BLACK); 
 
@@ -631,10 +632,12 @@ void loop(void)
 {
     static uint32_t imuNumReads = 0;
     static uint32_t prev_sec = 0;
+    
+	_loop_ota();
 
     // To update the IMU value, use M5.Imu.update.
     // If a new value is obtained, the return value is non-zero.
-
+	
 	delay(10);    
     auto bNewImuData = M5.Imu.update();
 
@@ -732,13 +735,14 @@ void loop(void)
 		static uint16_t lastAction = -1;
 		static uint32_t keptSteps;
 		
-		char msg[30];
+		char msg[40];
 		
 		if (lastNumSteps != stepsNow)
 		{
-			sprintf(msg, "%d %s %d", keptSteps, activity2string(lastAction), stepsNow);
+			//sprintf(msg, "bat=%d%%% %s %d", M5.Power.getBatteryVoltage()*100/4170, activity2string(lastAction), stepsNow);
+			sprintf(msg, "%d=%d%% %s %d", M5.Power.getBatteryVoltage(), M5.Power.getBatteryVoltage()*100/4170, activity2string(lastAction), stepsNow);
 			lastNumSteps = stepsNow;
-			myRefreshString(textWindow, hStatusStep, msg);
+			myRefreshString(textWindow, hSmallTextArea, msg);
 		}
 
 		uint16_t actionNow = getActivity();
@@ -753,11 +757,12 @@ void loop(void)
 			M5_LOGI("actionNow = %s", activity2string(actionNow));
 
 			lastAction = actionNow;
-			sprintf(msg, "%d %s %d", keptSteps, activity2string(actionNow), lastNumSteps);
-			myRefreshString(textWindow, hStatusStep, msg);
+			//sprintf(msg, "bat=%d%% %s %d", M5.Power.getBatteryVoltage()*100/4170, activity2string(actionNow), lastNumSteps);
+			sprintf(msg, "%d=%d%% %s %d", M5.Power.getBatteryVoltage(), M5.Power.getBatteryVoltage()*100/4170, activity2string(lastAction), stepsNow);
+			myRefreshString(textWindow, hSmallTextArea, msg);
 
 			sprintf(msg, "%d", keptSteps);
-			myRefreshString(textWindow,hLargeStep, msg); 
+			myRefreshString(textWindow,hLargeTextArea, msg); 
 		}
 #endif
 

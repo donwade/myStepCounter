@@ -1,2 +1,1 @@
-m5-stackS2 --log-info
-
+m5-stackS2 --log-info --dns_name SILVER
