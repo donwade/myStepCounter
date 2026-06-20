@@ -632,6 +632,13 @@ void loop(void)
 {
     static uint32_t imuNumReads = 0;
     static uint32_t prev_sec = 0;
+	static uint32_t lastNumSteps;
+	static uint16_t lastAction = -1;
+	static uint32_t keptSteps;
+
+	uint32_t stepsNow = getStepsTaken();
+	
+	char msg[40];
     
 	_loop_ota();
 
@@ -730,18 +737,22 @@ void loop(void)
 			MIN_ACC = 0.0;
 		}
 
-		static uint32_t lastNumSteps;
-		uint32_t stepsNow = getStepsTaken();
-		static uint16_t lastAction = -1;
-		static uint32_t keptSteps;
+
+		// force display update ever 250mS
+		static uint32_t dispTime;
+		if (dispTime < millis())
+		{
+			dispTime = millis() + 250;
+			sprintf(msg, "%d=%d%% %s %d", M5.Power.getBatteryVoltage(), M5.Power.getBatteryVoltage()*100/4170, activity2string(lastAction), stepsNow);
+			myRefreshString(textWindow, hSmallTextArea, msg);
+        }
 		
-		char msg[40];
 		
 		if (lastNumSteps != stepsNow)
 		{
+			lastNumSteps = stepsNow;
 			//sprintf(msg, "bat=%d%%% %s %d", M5.Power.getBatteryVoltage()*100/4170, activity2string(lastAction), stepsNow);
 			sprintf(msg, "%d=%d%% %s %d", M5.Power.getBatteryVoltage(), M5.Power.getBatteryVoltage()*100/4170, activity2string(lastAction), stepsNow);
-			lastNumSteps = stepsNow;
 			myRefreshString(textWindow, hSmallTextArea, msg);
 		}
 
