@@ -1,10 +1,15 @@
 // Include this to enable the M5 global instance.
-#include <M5Unified.h>
+//#include <M5Unified.h>
+
+#include <_m5Core2-only.h>
+
 //#include <MahonyAHRS.h>
 #include <_RTC.h>
 #include <_OTAUpload.h>
 
 #include "stepConfig.h"
+#include "sd-logger.h"
+
 
 // Strength of the calibration operation;
 // 0: disables calibration.
@@ -493,6 +498,8 @@ void setup(void)
     M5.begin(cfg);
 	Serial.begin(115200);
 
+	_setup_M5();
+	
     const char *name;
     auto imu_type = M5.Imu.getType();
 
@@ -620,6 +627,7 @@ void setup(void)
 								
 	set_factoryDefaults();
 
+	setup_SD();
 
 }
 
