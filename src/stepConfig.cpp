@@ -179,14 +179,14 @@ uint16_t RMWFeature( uint16_t enumReg, uint8_t LHS, uint8_t RHS,
 
 	uint16_t red = readFeature(enumReg, bQuiet);
 
-	if(!bQuiet) log_i("in  {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
+	if(!bQuiet) log_d("in  {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
 	red &= ~mask;
 	red |= (value << RHS);
-	if (!bQuiet) log_i("out {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
+	if (!bQuiet) log_d("out {0x%04X} >> 0x%4X %s", enumReg, red, showAsBinary(red));
 
 	// show final result
-	log_w("=== %s ===", msg );
-	log_i("{0x%04X} LHS=%d RHS=%d width=%d value=0x%X result=%s", enumReg, LHS, RHS, width, value, showAsBinary(red));
+	log_d("=== %s ===", msg );
+	log_d("{0x%04X} LHS=%d RHS=%d width=%d value=0x%X result=%s", enumReg, LHS, RHS, width, value, showAsBinary(red));
 
 	
 	M5.Imu.write16(index, red, bQuiet);
@@ -258,23 +258,21 @@ void writeFactoryNv(bool bQuiet)
 			uKeyRead = myNV.getUShort(cKey, scWriteVal); // if key doesn't exist, force value.
 			if (uKeyRead != scWriteVal)
 			{
-				log_w("difference in %s values %d vs %d ... updating", cKey, uKeyRead, scWriteVal);
+				log_d("difference in %s values %d vs %d ... updating", cKey, uKeyRead, scWriteVal);
 				assert( myNV.putUShort(cKey, scWriteVal) == 2); // 2 bytes should be written.
 			}
 			else
 			{
-				log_w("skipping %s values identical %d", cKey, uKeyRead);
+				log_d("skipping %s values identical %d", cKey, uKeyRead);
 			}
 		}
 		else
 		{
-			log_w("making new key %s = %d", cKey, scWriteVal);
+			log_d("making new key %s = %d", cKey, scWriteVal);
 			uKeyRead = myNV.getUShort(cKey, scWriteVal); // if key doesn't exist, force value.
 			assert( myNV.putUShort(cKey, scWriteVal) == 2); // 2 bytes should be written.
 		}
 
-		Serial.println("===========");
-		
  	}
 
 

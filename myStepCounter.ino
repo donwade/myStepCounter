@@ -635,6 +635,7 @@ static float MAX_ACC = 0.0;
 static float MIN_ACC = 0.0;
 static float LAST_ACC = 0.0;
 
+#define NUM_SAMPLES 100
 
 void loop(void)
 {
@@ -653,11 +654,14 @@ void loop(void)
     // To update the IMU value, use M5.Imu.update.
     // If a new value is obtained, the return value is non-zero.
 	
-	delay(10);    
     auto bNewImuData = M5.Imu.update();
 
     if (bNewImuData)
     {
+
+    	static uint32_t stopWatch;
+    	uint32_t timbit;
+    	
         // Obtain data on the current value of the IMU.
         m5::IMU_Class::imu_data_t data = M5.Imu.getImuData();
         
@@ -677,7 +681,6 @@ void loop(void)
         
         drawImuStats(graphicWindow, data);
 
-#if 1
 		// The data obtained by getImuData can be used as follows.
 		data.accel.x;       // accel x-axis value.
 		data.accel.y;       // accel y-axis value.
@@ -729,17 +732,63 @@ void loop(void)
 		double elev = elevation(stick);
 		double azim = azimuth(stick);
 
-		if (cnt > 300)
+
+		static float peakPlus  = 20;   // typical  plus hard hits go up to 1000
+		static float peakMinus = -20;  // typical  minus
+		
+		if ( data.accel.x > peakPlus )  peakPlus = data.accel.x;
+		if ( data.accel.y > peakPlus )  peakPlus = data.accel.y;
+		if ( data.accel.z > peakPlus )  peakPlus = data.accel.z;
+		
+		if ( data.accel.x < peakMinus )  peakMinus = data.accel.x;
+		if ( data.accel.y < peakMinus )  peakMinus = data.accel.y;
+		if ( data.accel.z < peakMinus )  peakMinus = data.accel.z;
+
+
+
+		if (cnt == NUM_SAMPLES)
 		{	
 			cnt = 0;
-			M5_LOGI("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
-			M5_LOGI("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
-		  //M5_LOGI("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
-			M5_LOGI("|G| = %f  |A| = %f", MAG_GYRO, MAG_ACC);
-			M5_LOGI("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
-			M5_LOGI("azim = %.1f  elev = %.1f ", azim, elev);
-			M5_LOGI("steps %d ", getStepsTaken());
-			M5_LOGI(" ");
+
+			#if 1
+			Serial.printf("%d, %d, %d, %d, %d, %d\n", (int) (10. * data.accel.x), 
+										  (int) (10. * data.accel.y),
+										  (int) (10. * data.accel.z),
+										  (int) (10. * MAG_ACC),
+										  (int) (10. * peakPlus),
+										  (int) (10. * peakMinus)  );
+			#else
+
+			Serial.printf("ACC-x:%d\n", (int) (10. * data.accel.x));
+			Serial.printf("ACC-y:%d\n", (int) (10. * data.accel.y));
+			Serial.printf("ACC-z:%d\n", (int) (10. * data.accel.z));
+			Serial.printf("ACC-hi:%d\n", (int) (10. * peakPlus));
+			Serial.printf("ACC-lo:%d\n", (int) (10. * peakMinus));
+			#endif
+			
+			/*
+			timbit = micros();
+			//float uSperSample = (float)NUM_SAMPLES / (float) (timbit - stopWatch);
+			float uSperSample = (float) (NUM_SAMPLES * 1000000)/(float) (timbit - stopWatch);
+            
+			Serial.printf("uS\/sample = %.1f\n", uSperSample);
+			stopWatch = timbit;
+
+			answer: 180uS per sample
+			*/
+			
+			// accel +-100
+			M5_LOGD("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
+
+			// gyro +- 1.0000
+			M5_LOGD("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
+			
+		  //M5_LOGD("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
+			M5_LOGD("|G| = %f  |A| = %f", MAG_GYRO, MAG_ACC);
+			M5_LOGD("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
+			M5_LOGD("azim = %.1f  elev = %.1f ", azim, elev);
+			M5_LOGD("steps %d ", getStepsTaken());
+			M5_LOGD(" ");
 			
 			MAX_ACC = 0.0;
 			MIN_ACC = 0.0;
@@ -773,7 +822,7 @@ void loop(void)
 				keptSteps = lastNumSteps;
 				resetStepCtr();
 			}
-			M5_LOGI("actionNow = %s", activity2string(actionNow));
+			M5_LOGD("actionNow = %s", activity2string(actionNow));
 
 			lastAction = actionNow;
 			//sprintf(msg, "bat=%d%% %s %d", M5.Power.getBatteryVoltage()*100/4170, activity2string(actionNow), lastNumSteps);
@@ -783,8 +832,6 @@ void loop(void)
 			sprintf(msg, "%d", keptSteps);
 			myRefreshString(textWindow,hLargeTextArea, msg); 
 		}
-#endif
-
 	
         ++imuNumReads;
     }
