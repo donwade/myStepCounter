@@ -200,6 +200,7 @@ void setup_SD() {
   Serial.print(cardSize);
   Serial.println("MB");
 
+#if 0
   listDir(SD, "/", 0);
   createDir(SD, "/mydir");
   listDir(SD, "/", 0);
@@ -212,6 +213,7 @@ void setup_SD() {
   renameFile(SD, "/hello.txt", "/foo.txt");
   readFile(SD, "/foo.txt");
   testFileIO(SD, "/test.txt");
+#endif
 
   Serial.print("Total space: ");
   Serial.print(SD.totalBytes() / (1024 * 1024));

@@ -635,7 +635,13 @@ static float MAX_ACC = 0.0;
 static float MIN_ACC = 0.0;
 static float LAST_ACC = 0.0;
 
-#define NUM_SAMPLES 100
+#define REPORT_AFTER_nSAMPLES 10
+
+
+#define HIST_LEN 300
+static float historyMag[HIST_LEN];
+static int historyIndex = 0;
+
 
 void loop(void)
 {
@@ -733,50 +739,101 @@ void loop(void)
 		double azim = azimuth(stick);
 
 
-		static float peakPlus  = 20;   // typical  plus hard hits go up to 1000
-		static float peakMinus = -20;  // typical  minus
+		static float peakAnyPlus  = 20;   // typical  plus hard hits go up to 1000
+		static float peakAnyMinus = -20;  // typical  minus
+
+		static float peakMagPlus  =  0;
+		static float peakMagMinus =  99999;
+
 		
-		if ( data.accel.x > peakPlus )  peakPlus = data.accel.x;
-		if ( data.accel.y > peakPlus )  peakPlus = data.accel.y;
-		if ( data.accel.z > peakPlus )  peakPlus = data.accel.z;
+		if ( data.accel.x > peakAnyPlus )  peakAnyPlus = data.accel.x;
+		if ( data.accel.y > peakAnyPlus )  peakAnyPlus = data.accel.y;
+		if ( data.accel.z > peakAnyPlus )  peakAnyPlus = data.accel.z;
 		
-		if ( data.accel.x < peakMinus )  peakMinus = data.accel.x;
-		if ( data.accel.y < peakMinus )  peakMinus = data.accel.y;
-		if ( data.accel.z < peakMinus )  peakMinus = data.accel.z;
+		if ( data.accel.x < peakAnyMinus )  peakAnyMinus = data.accel.x;
+		if ( data.accel.y < peakAnyMinus )  peakAnyMinus = data.accel.y;
+		if ( data.accel.z < peakAnyMinus )  peakAnyMinus = data.accel.z;
 
 
+		// remember MAG_ACC is always positive. 
+		if ( MAG_ACC < peakMagMinus) peakMagMinus = MAG_ACC;
+		if ( MAG_ACC > peakMagPlus) peakMagPlus = MAG_ACC;
 
-		if (cnt == NUM_SAMPLES)
+		uint32_t j = 0;
+		//for (j = 0; j < HIST_LEN-1; j++)
+		//{
+		//	historyMag[j] = historyMag[j+1];
+		//}
+
+		// rolling history
+		memcpy (&historyMag[0], &historyMag[1], (HIST_LEN) * sizeof(historyMag[0]));
+		historyMag[HIST_LEN-1] = MAG_ACC;
+		
+
+		if (cnt == REPORT_AFTER_nSAMPLES)
 		{	
 			cnt = 0;
 
+
+			// ---- calc avg
+			float avg = 0;
+			j = 0;			
+			for (float  hist : historyMag) 
+			{
+				avg += historyMag[j];
+				j++;
+				//printf("[%2d] %f\n", j, hist);
+			}
+			avg /= (float) j;
+			
+
+			// bias up the line for display purposes
+			float decide = (MAG_ACC > avg) ?  MAG_ACC * 1.2 : MAX_ACC * .5;
+
+			// Print sensor data in CSV format for Serial Studio visualization
+			Serial.printf("%d\t%f\t%f\t%f\n", (int) decide, avg , MAG_ACC, peakMagPlus);
+/*			
+			// Z-axis accel (m/s^2)
+			Serial.printf("%f\t%f\t%f\n", data.accel.x * 100.,
+										  data.accel.y * 100.,
+										  data.accel.z * 100.);
+			Serial.print(" ");
+			Serial.print(data.gyro.x);  // X-axis gyroscope (deg/s)
+			Serial.print(" ");
+			Serial.print(data.gyro.y);  // Y-axis gyroscope (deg/s)
+			Serial.print(" ");
+			Serial.print(data.gyro.z);  // Z-axis gyroscope (deg/s)
+			Serial.print(" ");
+*/			
+
+#if 0
 			#if 1
 			Serial.printf("%d, %d, %d, %d, %d, %d\n", (int) (10. * data.accel.x), 
 										  (int) (10. * data.accel.y),
 										  (int) (10. * data.accel.z),
 										  (int) (10. * MAG_ACC),
-										  (int) (10. * peakPlus),
-										  (int) (10. * peakMinus)  );
+										  (int) (10. * peakAnyPlus),
+										  (int) (10. * peakAnyMinus)  );
 			#else
 
 			Serial.printf("ACC-x:%d\n", (int) (10. * data.accel.x));
 			Serial.printf("ACC-y:%d\n", (int) (10. * data.accel.y));
 			Serial.printf("ACC-z:%d\n", (int) (10. * data.accel.z));
-			Serial.printf("ACC-hi:%d\n", (int) (10. * peakPlus));
-			Serial.printf("ACC-lo:%d\n", (int) (10. * peakMinus));
+			Serial.printf("ACC-hi:%d\n", (int) (10. * peakAnyPlus));
+			Serial.printf("ACC-lo:%d\n", (int) (10. * peakAnyMinus));
 			#endif
 			
 			/*
 			timbit = micros();
-			//float uSperSample = (float)NUM_SAMPLES / (float) (timbit - stopWatch);
-			float uSperSample = (float) (NUM_SAMPLES * 1000000)/(float) (timbit - stopWatch);
+			//float uSperSample = (float)REPORT_AFTER_nSAMPLES / (float) (timbit - stopWatch);
+			float uSperSample = (float) (REPORT_AFTER_nSAMPLES * 1000000)/(float) (timbit - stopWatch);
             
 			Serial.printf("uS\/sample = %.1f\n", uSperSample);
 			stopWatch = timbit;
 
 			answer: 180uS per sample
 			*/
-			
+#endif			
 			// accel +-100
 			M5_LOGD("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
 
