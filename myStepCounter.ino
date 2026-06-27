@@ -6,7 +6,7 @@
 //#include <MahonyAHRS.h>
 #include <_RTC.h>
 #include <_OTAUpload.h>
-
+#include "LowPassFilterIf.h"
 #include "stepConfig.h"
 #include "sd-logger.h"
 
@@ -726,7 +726,15 @@ void loop(void)
 
 		LAST_ACC = MAG_ACC;
 		
-		
+
+        static uint32_t oldTime;
+        uint32_t diffTime = micros() - oldTime;
+        float lpVal = 0.0;
+
+        // time in seconds please.
+        if (oldTime) lpVal = run_LP(MAG_ACC, (float)diffTime/1000000. , 1); // 1 hz lowpass
+        oldTime = micros();
+
 		static uint16_t cnt;
 		cnt++;
 
@@ -770,28 +778,55 @@ void loop(void)
 		historyMag[HIST_LEN-1] = MAG_ACC;
 		
 
+	
 		if (cnt == REPORT_AFTER_nSAMPLES)
 		{	
 			cnt = 0;
-
+			const int SHORT = 20;
 
 			// ---- calc avg
-			float avg = 0;
+			float longTermAvg = 0;
+			float shortTermAvg = 0;
+			
 			j = 0;			
 			for (float  hist : historyMag) 
 			{
-				avg += historyMag[j];
+				longTermAvg += historyMag[j];
+				
+				if (j > (HIST_LEN - SHORT)) shortTermAvg += historyMag[j];
 				j++;
+				
 				//printf("[%2d] %f\n", j, hist);
 			}
-			avg /= (float) j;
+			longTermAvg /= (float) j;
+			shortTermAvg /= SHORT;
 			
-
+			const int8_t hysterisis = 10;
+			
 			// bias up the line for display purposes
-			float decide = (MAG_ACC > avg) ?  MAG_ACC * 1.2 : MAX_ACC * .5;
 
+			static float decide;
+			static bool bLastState;
+			
+			    if (shortTermAvg > longTermAvg + hysterisis)
+			    {
+					decide = -5;
+					if (!bLastState) M5.Speaker.tone(2000, 100);
+					bLastState = 1;
+			    }
+			    else if (shortTermAvg < longTermAvg - hysterisis)
+			    {
+			    	decide = 0;
+					if (bLastState) M5.Speaker.tone(1000, 100);
+					bLastState = 0;
+			    }
+			    else
+			    {
+					//decide = -20;  // use last decide
+			    }
+			
 			// Print sensor data in CSV format for Serial Studio visualization
-			Serial.printf("%d\t%f\t%f\t%f\n", (int) decide, avg , MAG_ACC, peakMagPlus);
+			Serial.printf("%d\t%f\t%f\t%f\n", (int) decide, longTermAvg , shortTermAvg, lpVal);
 /*			
 			// Z-axis accel (m/s^2)
 			Serial.printf("%f\t%f\t%f\n", data.accel.x * 100.,
