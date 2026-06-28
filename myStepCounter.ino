@@ -12,12 +12,12 @@
 #include "pretty.h"
 
 
-#define LOG_FILENAME "/DATA.LOG"
-#define FILENAME1 	 "/DATA1.BKU"
-#define FILENAME2 	 "/DATA2.BKU"
-#define FILENAME3 	 "/DATA3.BKU"
-#define FILENAME4 	 "/DATA4.BKU"
-#define FILENAME5 	 "/DATA5.BKU"
+#define LOG_FILENAME "/FLIGHT.LOG"
+#define BACKUP1 	 "/DATA1.BKU"
+#define BACKUP2 	 "/DATA2.BKU"
+#define BACKUP3 	 "/DATA3.BKU"
+#define BACKUP4 	 "/DATA4.BKU"
+#define BACKUP5 	 "/DATA5.BKU"
 
 // Strength of the calibration operation;
 // 0: disables calibration.
@@ -488,9 +488,12 @@ uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
 uint32_t hLargeTextArea; 
 uint32_t hSmallTextArea;
 
-#define RECORDING 1
-#define PLAYBACK  0
+#define RECORDING 0
+#define PLAYBACK  1
 #define LIVE      0
+
+File file;
+
 
 void setup(void)
 {
@@ -513,20 +516,6 @@ void setup(void)
 	_setup_M5();
 
 	setup_SD();
-	
-#if RECORDING
-	// hold 5 versions on SD card
-	deleteFile(SD, FILENAME5);
-	renameFile(SD, FILENAME4, FILENAME5);
-	renameFile(SD, FILENAME3, FILENAME4);
-	renameFile(SD, FILENAME2, FILENAME3);
-	renameFile(SD, FILENAME1, FILENAME2);
-	renameFile(SD, LOG_FILENAME, FILENAME1);
-	// open up logging.
-	appendFile( SD, LOG_FILENAME, "0 1.1");
-	
- #endif
-
 	
     const char *name;
     auto imu_type = M5.Imu.getType();
@@ -655,6 +644,39 @@ void setup(void)
 								
 	set_factoryDefaults();
 
+
+#if PLAYBACK
+	file = SD.open(BACKUP3, FILE_READ);
+#endif
+
+#if RECORDING
+	// hold 5 versions on SD card
+	deleteFile(SD, BACKUP5);
+	renameFile(SD, BACKUP4, BACKUP5);
+	renameFile(SD, BACKUP3, BACKUP4);
+	renameFile(SD, BACKUP2, BACKUP3);
+	renameFile(SD, BACKUP1, BACKUP2);
+	renameFile(SD, LOG_FILENAME, BACKUP1);
+	// open up logging.
+	appendFile( SD, LOG_BACKUP, "0 1.1");
+	
+ #endif
+
+	// want a cal before starting main loop?
+    uint32_t ok = millis();
+    while ( ok + 3000 > millis())
+    {
+		 M5.update();
+ 
+		 // Calibration is initiated when a button or screen is clicked.
+ 		if (   M5.BtnA.wasClicked() 
+ 			|| M5.BtnPWR.wasClicked() 
+ 			|| M5.Touch.getDetail().wasClicked())
+	 	startCalibration();
+	 	delay(50);
+	}
+	
+
 }
 
 static float MAX_ACC = 0.0;
@@ -677,7 +699,23 @@ typedef struct {
 static oneEntry flightRecorder[FLIGHT_LEN];
 static int flightIndex = 0;
 
+//-----------------------------------------------------
 
+bool fread(char *dest, uint32_t len)
+{
+
+	if ( file.available()) 
+	{
+		String data;
+		data = file.readStringUntil('\n');
+		//Serial.println(data);
+		strncpy (dest, data.c_str(), len);
+		return true;
+	}
+	return false;
+}
+
+//-----------------------------------------------------
 
 void loop(void)
 {
@@ -687,19 +725,32 @@ void loop(void)
 	static uint16_t lastAction = -1;
 	static uint32_t keptSteps;
 	static uint32_t bytesWritten = 0;
+	static uint32_t oldTime;
+
+	static float peakAnyPlus  = 20;   // typical  plus hard hits go up to 1000
+	static float peakAnyMinus = -20;  // typical  minus
+	
+	static float peakMagPlus  =  0;
+	static float peakMagMinus =  99999;
+	
+
 	
 	uint32_t stepsNow = getStepsTaken();
 	
 	char msg[40];
+	float MAG_ACC;
+    uint32_t diffTime;
     
 	_loop_ota();
 
     // To update the IMU value, use M5.Imu.update.
     // If a new value is obtained, the return value is non-zero.
-	
-    auto bNewImuData = M5.Imu.update();
 
+
+#if LIVE
+    auto bNewImuData = M5.Imu.update();
     if (bNewImuData)
+
     {
 
     	static uint32_t stopWatch;
@@ -724,25 +775,6 @@ void loop(void)
         
         drawImuStats(graphicWindow, data);
 
-		// The data obtained by getImuData can be used as follows.
-		data.accel.x;       // accel x-axis value.
-		data.accel.y;       // accel y-axis value.
-		data.accel.z;       // accel z-axis value.
-		//data.accel.value; // accel 3values array [0]=x / [1]=y / [2]=z.
-
-		data.gyro.x;       // gyro x-axis value.
-		data.gyro.y;       // gyro y-axis value.
-		data.gyro.z;       // gyro z-axis value.
-		//data.gyro.value; // gyro 3values array [0]=x / [1]=y / [2]=z.
-
-		data.mag.x;       // mag x-axis value.
-		data.mag.y;       // mag y-axis value.
-		data.mag.z;       // mag z-axis value.
-		//data.mag.value; // mag 3values array [0]=x / [1]=y / [2]=z.
-
-		// interesting.... a 3x3 array of everthing.
-		//data.value;      // all sensor 9values array [0~2]=accel / [3~5]=gyro / [6~8]=mag
-
 		float MAG_GYRO;
 
 		// normalize gyro magnitude (always should be
@@ -750,7 +782,6 @@ void loop(void)
 						data.gyro.y * data.gyro.y + 
 						data.gyro.z * data.gyro.z) / sqrt(3.0);
 
-		float MAG_ACC;
 		MAG_ACC = sqrt(data.accel.x * data.accel.x +
 					   data.accel.y * data.accel.y + 
 					   data.accel.z * data.accel.z);
@@ -762,25 +793,60 @@ void loop(void)
 		if (MIN_ACC > holdACC) MIN_ACC = holdACC;
 
 		LAST_ACC = MAG_ACC;
-		
 
 		// low pass filter --------------------
-        static uint32_t oldTime;
-        uint32_t diffTime = micros() - oldTime;
+        diffTime = micros() - oldTime;
+#endif
+
+
+#define LINE Serial.printf("%s:%d \n", __FUNCTION__, __LINE__);
+
+#if PLAYBACK
+	char temp[70];
+	uint32_t ftime;
+	float	 fvalue;
+	
+	if ( fread(temp, sizeof(temp))) 
+	{
+		sscanf(temp, "%d %f", &ftime, &fvalue);
+
+		if (!oldTime)
+		{	
+			// very first time thru, some setup needed
+			oldTime = ftime;
+			if ( fread(temp, sizeof(temp)))
+			{
+				sscanf(temp, "%d %f", &ftime, &fvalue);
+			}
+			else
+			{
+				Serial.println("SOURE FILE TOO SMALL ... zzzz");
+				delay(-1);
+			}
+		}
+
+		MAG_ACC = fvalue;
+		diffTime = ftime - oldTime;
+		oldTime = ftime;
+    
+#endif
+
         float lpVal = 0.0;
 
         // time in seconds please.
         if (oldTime) lpVal = run_LP(MAG_ACC, (float)diffTime/1000000. , 1); // 1 hz lowpass
-        oldTime = micros();
 
 		// diff time = 5244 uS rate = 190.7 S/s
-        // Serial.printf("diff time = %d uS rate = %.1f S/s\n", diffTime, 1000000./ (float) diffTime);
+        //Serial.printf("diff time = %d uS rate = %.1f S/s\n", diffTime, 1000000./ (float) diffTime);
         
 		// ------------------------------------
 
 		static uint16_t cnt;
 		cnt++;
 
+#if LIVE
+        oldTime = micros();
+        
 		Point3D stick;
 		stick.x = data.gyro.x;
 		stick.y = data.gyro.y;
@@ -790,12 +856,6 @@ void loop(void)
 		double azim = azimuth(stick);
 
 
-		static float peakAnyPlus  = 20;   // typical  plus hard hits go up to 1000
-		static float peakAnyMinus = -20;  // typical  minus
-
-		static float peakMagPlus  =  0;
-		static float peakMagMinus =  99999;
-
 		
 		if ( data.accel.x > peakAnyPlus )  peakAnyPlus = data.accel.x;
 		if ( data.accel.y > peakAnyPlus )  peakAnyPlus = data.accel.y;
@@ -804,7 +864,7 @@ void loop(void)
 		if ( data.accel.x < peakAnyMinus )  peakAnyMinus = data.accel.x;
 		if ( data.accel.y < peakAnyMinus )  peakAnyMinus = data.accel.y;
 		if ( data.accel.z < peakAnyMinus )  peakAnyMinus = data.accel.z;
-
+#endif
 
 		// remember MAG_ACC is always positive. 
 		if ( MAG_ACC < peakMagMinus) peakMagMinus = MAG_ACC;
@@ -935,17 +995,20 @@ void loop(void)
 
 			answer: 180uS per sample
 			*/
-#endif			
+			
 			// accel +-100
 			M5_LOGD("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
 
 			// gyro +- 1.0000
 			M5_LOGD("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
-			
-		  //M5_LOGD("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
-			M5_LOGD("|G| = %f  |A| = %f", MAG_GYRO, MAG_ACC);
+
+			//M5_LOGD("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
+
+			M5_LOGD("|G| = %f", MAG_GYRO);
 			M5_LOGD("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
 			M5_LOGD("azim = %.1f  elev = %.1f ", azim, elev);
+#endif			
+			M5_LOGD("|A| = %f", MAG_ACC);
 			M5_LOGD("steps %d ", getStepsTaken());
 			M5_LOGD(" ");
 			
@@ -997,11 +1060,8 @@ void loop(void)
     }
     else
     {
-        M5.update();
-
-        // Calibration is initiated when a button or screen is clicked.
-        if (M5.BtnA.wasClicked() || M5.BtnPWR.wasClicked() || M5.Touch.getDetail().wasClicked())
-            startCalibration();
+    	Serial.printf("end of data\n");
+    	delay(-1);
     }
 
     int32_t secondsPassed = millis() / 1000;

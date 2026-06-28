@@ -71,7 +71,7 @@ void removeDir(fs::FS &fs, const char *path) {
 void readFile(fs::FS &fs, const char *path) {
   xprintf("Reading file: %s\n", path);
 
-  File file = fs.open(path);
+  File file = fs.open(path, FILE_READ);
   if (!file) {
     xprintln("Failed to open file for reading");
     return;
