@@ -280,7 +280,7 @@ void writeFactoryNv(bool bQuiet)
 	myNV.end();
 
 	
-	//Serial.println("Data updated. Restarting ESP32 in 10 seconds...\n");
+	//Serial.xprintln("Data updated. Restarting ESP32 in 10 seconds...\n");
 	//delay(10000);
 	//ESP.restart(); // Restart to see the counter increase
 

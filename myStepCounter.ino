@@ -9,7 +9,15 @@
 #include "LowPassFilterIf.h"
 #include "stepConfig.h"
 #include "sd-logger.h"
+#include "pretty.h"
 
+
+#define LOG_FILENAME "/DATA.LOG"
+#define FILENAME1 	 "/DATA1.BKU"
+#define FILENAME2 	 "/DATA2.BKU"
+#define FILENAME3 	 "/DATA3.BKU"
+#define FILENAME4 	 "/DATA4.BKU"
+#define FILENAME5 	 "/DATA5.BKU"
 
 // Strength of the calibration operation;
 // 0: disables calibration.
@@ -480,6 +488,10 @@ uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
 uint32_t hLargeTextArea; 
 uint32_t hSmallTextArea;
 
+#define RECORDING 1
+#define PLAYBACK  0
+#define LIVE      0
+
 void setup(void)
 {
 
@@ -499,6 +511,22 @@ void setup(void)
 	Serial.begin(115200);
 
 	_setup_M5();
+
+	setup_SD();
+	
+#if RECORDING
+	// hold 5 versions on SD card
+	deleteFile(SD, FILENAME5);
+	renameFile(SD, FILENAME4, FILENAME5);
+	renameFile(SD, FILENAME3, FILENAME4);
+	renameFile(SD, FILENAME2, FILENAME3);
+	renameFile(SD, FILENAME1, FILENAME2);
+	renameFile(SD, LOG_FILENAME, FILENAME1);
+	// open up logging.
+	appendFile( SD, LOG_FILENAME, "0 1.1");
+	
+ #endif
+
 	
     const char *name;
     auto imu_type = M5.Imu.getType();
@@ -627,8 +655,6 @@ void setup(void)
 								
 	set_factoryDefaults();
 
-	setup_SD();
-
 }
 
 static float MAX_ACC = 0.0;
@@ -642,6 +668,16 @@ static float LAST_ACC = 0.0;
 static float historyMag[HIST_LEN];
 static int historyIndex = 0;
 
+#define FLIGHT_LEN 5000
+typedef struct {
+	uint32_t clockUs;
+	float value;
+} oneEntry;
+
+static oneEntry flightRecorder[FLIGHT_LEN];
+static int flightIndex = 0;
+
+
 
 void loop(void)
 {
@@ -650,7 +686,8 @@ void loop(void)
 	static uint32_t lastNumSteps;
 	static uint16_t lastAction = -1;
 	static uint32_t keptSteps;
-
+	static uint32_t bytesWritten = 0;
+	
 	uint32_t stepsNow = getStepsTaken();
 	
 	char msg[40];
@@ -727,6 +764,7 @@ void loop(void)
 		LAST_ACC = MAG_ACC;
 		
 
+		// low pass filter --------------------
         static uint32_t oldTime;
         uint32_t diffTime = micros() - oldTime;
         float lpVal = 0.0;
@@ -734,6 +772,11 @@ void loop(void)
         // time in seconds please.
         if (oldTime) lpVal = run_LP(MAG_ACC, (float)diffTime/1000000. , 1); // 1 hz lowpass
         oldTime = micros();
+
+		// diff time = 5244 uS rate = 190.7 S/s
+        // Serial.printf("diff time = %d uS rate = %.1f S/s\n", diffTime, 1000000./ (float) diffTime);
+        
+		// ------------------------------------
 
 		static uint16_t cnt;
 		cnt++;
@@ -767,22 +810,44 @@ void loop(void)
 		if ( MAG_ACC < peakMagMinus) peakMagMinus = MAG_ACC;
 		if ( MAG_ACC > peakMagPlus) peakMagPlus = MAG_ACC;
 
-		uint32_t j = 0;
-		//for (j = 0; j < HIST_LEN-1; j++)
-		//{
-		//	historyMag[j] = historyMag[j+1];
-		//}
-
 		// rolling history
 		memcpy (&historyMag[0], &historyMag[1], (HIST_LEN) * sizeof(historyMag[0]));
-		historyMag[HIST_LEN-1] = MAG_ACC;
 		
+		  historyMag[HIST_LEN-1] = MAG_ACC;
+		//historyMag[HIST_LEN-1] = lpVal;
 
+#if RECORDING
+		// don't record idle.
+		if (MAG_ACC > 1.0)
+		{
+			flightRecorder[flightIndex].clockUs = micros();
+			flightRecorder[flightIndex++].value = MAG_ACC;
+		}
+
+		
+		if (flightIndex == FLIGHT_LEN)
+		{
+			char msg[70];
+			uint32_t k;
+			
+			Serial.println("dump flight recorder to SD"); 
+			for (k = 0; k < FLIGHT_LEN; k++)
+			{
+				bytesWritten += sprintf(msg, "%d %f\n", flightRecorder[k].clockUs, flightRecorder[k].value);
+				appendFile(SD, LOG_FILENAME, msg);
+			}
+			Serial.printf("wc %d %d \n\n", k, bytesWritten);
+			flightIndex = 0;
+		}
+#endif
+		
+		//----------------------------------------------------------
 	
 		if (cnt == REPORT_AFTER_nSAMPLES)
 		{	
 			cnt = 0;
 			const int SHORT = 20;
+			uint32_t j = 0;
 
 			// ---- calc avg
 			float longTermAvg = 0;
@@ -808,13 +873,13 @@ void loop(void)
 			static float decide;
 			static bool bLastState;
 			
-			    if (shortTermAvg > longTermAvg + hysterisis)
+			    if (lpVal > longTermAvg + hysterisis)
 			    {
 					decide = -5;
 					if (!bLastState) M5.Speaker.tone(2000, 100);
 					bLastState = 1;
 			    }
-			    else if (shortTermAvg < longTermAvg - hysterisis)
+			    else if (lpVal < longTermAvg - hysterisis)
 			    {
 			    	decide = 0;
 					if (bLastState) M5.Speaker.tone(1000, 100);
@@ -824,9 +889,11 @@ void loop(void)
 			    {
 					//decide = -20;  // use last decide
 			    }
-			
+
 			// Print sensor data in CSV format for Serial Studio visualization
 			Serial.printf("%d\t%f\t%f\t%f\n", (int) decide, longTermAvg , shortTermAvg, lpVal);
+
+
 /*			
 			// Z-axis accel (m/s^2)
 			Serial.printf("%f\t%f\t%f\n", data.accel.x * 100.,
@@ -886,6 +953,7 @@ void loop(void)
 			MIN_ACC = 0.0;
 		}
 
+		//----------------------------------------------------------
 
 		// force display update ever 250mS
 		static uint32_t dispTime;
