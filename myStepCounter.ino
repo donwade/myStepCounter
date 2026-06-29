@@ -488,8 +488,8 @@ uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
 uint32_t hLargeTextArea; 
 uint32_t hSmallTextArea;
 
-#define RECORDING 0
-#define PLAYBACK  1
+#define RECORDING 1
+#define PLAYBACK  0
 #define LIVE      0
 
 File file;
@@ -646,10 +646,14 @@ void setup(void)
 
 
 #if PLAYBACK
+	M5.Speaker.setVolume(20);
+
 	file = SD.open(BACKUP3, FILE_READ);
 #endif
 
 #if RECORDING
+	M5.Speaker.setVolume(100);
+	
 	// hold 5 versions on SD card
 	deleteFile(SD, BACKUP5);
 	renameFile(SD, BACKUP4, BACKUP5);
@@ -658,7 +662,7 @@ void setup(void)
 	renameFile(SD, BACKUP1, BACKUP2);
 	renameFile(SD, LOG_FILENAME, BACKUP1);
 	// open up logging.
-	appendFile( SD, LOG_BACKUP, "0 1.1");
+	appendFile( SD, LOG_FILENAME, "0 1.1");
 	
  #endif
 
@@ -675,7 +679,8 @@ void setup(void)
 	 	startCalibration();
 	 	delay(50);
 	}
-	
+
+	M5.Speaker.setVolume(20);
 
 }
 
@@ -747,7 +752,7 @@ void loop(void)
     // If a new value is obtained, the return value is non-zero.
 
 
-#if LIVE
+#if LIVE || RECORDING
     auto bNewImuData = M5.Imu.update();
     if (bNewImuData)
 
@@ -796,6 +801,8 @@ void loop(void)
 
 		// low pass filter --------------------
         diffTime = micros() - oldTime;
+        oldTime += diffTime;
+        
 #endif
 
 
@@ -889,8 +896,16 @@ void loop(void)
 		{
 			char msg[70];
 			uint32_t k;
-			
+			M5.Speaker.setVolume(100);
+
 			Serial.println("dump flight recorder to SD"); 
+
+			M5.Speaker.tone(800, 500);
+			delay(500);
+			M5.Speaker.tone(1000, 500);
+			delay(500);
+			M5.Speaker.tone(1500, 500);
+			
 			for (k = 0; k < FLIGHT_LEN; k++)
 			{
 				bytesWritten += sprintf(msg, "%d %f\n", flightRecorder[k].clockUs, flightRecorder[k].value);
@@ -898,6 +913,15 @@ void loop(void)
 			}
 			Serial.printf("wc %d %d \n\n", k, bytesWritten);
 			flightIndex = 0;
+
+			M5.Speaker.tone(2000, 500);
+			delay(500);
+			M5.Speaker.tone(2000, 500);
+			delay(500);
+			M5.Speaker.tone(2000, 500);
+			
+			M5.Speaker.setVolume(20);
+			
 		}
 #endif
 		
@@ -954,60 +978,6 @@ void loop(void)
 			Serial.printf("%d\t%f\t%f\t%f\n", (int) decide, longTermAvg , shortTermAvg, lpVal);
 
 
-/*			
-			// Z-axis accel (m/s^2)
-			Serial.printf("%f\t%f\t%f\n", data.accel.x * 100.,
-										  data.accel.y * 100.,
-										  data.accel.z * 100.);
-			Serial.print(" ");
-			Serial.print(data.gyro.x);  // X-axis gyroscope (deg/s)
-			Serial.print(" ");
-			Serial.print(data.gyro.y);  // Y-axis gyroscope (deg/s)
-			Serial.print(" ");
-			Serial.print(data.gyro.z);  // Z-axis gyroscope (deg/s)
-			Serial.print(" ");
-*/			
-
-#if 0
-			#if 1
-			Serial.printf("%d, %d, %d, %d, %d, %d\n", (int) (10. * data.accel.x), 
-										  (int) (10. * data.accel.y),
-										  (int) (10. * data.accel.z),
-										  (int) (10. * MAG_ACC),
-										  (int) (10. * peakAnyPlus),
-										  (int) (10. * peakAnyMinus)  );
-			#else
-
-			Serial.printf("ACC-x:%d\n", (int) (10. * data.accel.x));
-			Serial.printf("ACC-y:%d\n", (int) (10. * data.accel.y));
-			Serial.printf("ACC-z:%d\n", (int) (10. * data.accel.z));
-			Serial.printf("ACC-hi:%d\n", (int) (10. * peakAnyPlus));
-			Serial.printf("ACC-lo:%d\n", (int) (10. * peakAnyMinus));
-			#endif
-			
-			/*
-			timbit = micros();
-			//float uSperSample = (float)REPORT_AFTER_nSAMPLES / (float) (timbit - stopWatch);
-			float uSperSample = (float) (REPORT_AFTER_nSAMPLES * 1000000)/(float) (timbit - stopWatch);
-            
-			Serial.printf("uS\/sample = %.1f\n", uSperSample);
-			stopWatch = timbit;
-
-			answer: 180uS per sample
-			*/
-			
-			// accel +-100
-			M5_LOGD("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
-
-			// gyro +- 1.0000
-			M5_LOGD("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
-
-			//M5_LOGD("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
-
-			M5_LOGD("|G| = %f", MAG_GYRO);
-			M5_LOGD("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
-			M5_LOGD("azim = %.1f  elev = %.1f ", azim, elev);
-#endif			
 			M5_LOGD("|A| = %f", MAG_ACC);
 			M5_LOGD("steps %d ", getStepsTaken());
 			M5_LOGD(" ");
@@ -1058,11 +1028,14 @@ void loop(void)
 	
         ++imuNumReads;
     }
+
+#if PLAYBACK
     else
     {
     	Serial.printf("end of data\n");
     	delay(-1);
     }
+#endif 
 
     int32_t secondsPassed = millis() / 1000;
 
@@ -1080,3 +1053,61 @@ void loop(void)
             vTaskDelay(1);
     }
 }
+
+
+#if 0
+			/*			
+						// Z-axis accel (m/s^2)
+						Serial.printf("%f\t%f\t%f\n", data.accel.x * 100.,
+													  data.accel.y * 100.,
+													  data.accel.z * 100.);
+						Serial.print(" ");
+						Serial.print(data.gyro.x);	// X-axis gyroscope (deg/s)
+						Serial.print(" ");
+						Serial.print(data.gyro.y);	// Y-axis gyroscope (deg/s)
+						Serial.print(" ");
+						Serial.print(data.gyro.z);	// Z-axis gyroscope (deg/s)
+						Serial.print(" ");
+			*/			
+			
+			#if 1
+			Serial.printf("%d, %d, %d, %d, %d, %d\n", (int) (10. * data.accel.x), 
+										  (int) (10. * data.accel.y),
+										  (int) (10. * data.accel.z),
+										  (int) (10. * MAG_ACC),
+										  (int) (10. * peakAnyPlus),
+										  (int) (10. * peakAnyMinus)  );
+			#else
+
+			Serial.printf("ACC-x:%d\n", (int) (10. * data.accel.x));
+			Serial.printf("ACC-y:%d\n", (int) (10. * data.accel.y));
+			Serial.printf("ACC-z:%d\n", (int) (10. * data.accel.z));
+			Serial.printf("ACC-hi:%d\n", (int) (10. * peakAnyPlus));
+			Serial.printf("ACC-lo:%d\n", (int) (10. * peakAnyMinus));
+			#endif
+			
+			/*
+			timbit = micros();
+			//float uSperSample = (float)REPORT_AFTER_nSAMPLES / (float) (timbit - stopWatch);
+			float uSperSample = (float) (REPORT_AFTER_nSAMPLES * 1000000)/(float) (timbit - stopWatch);
+            
+			Serial.printf("uS\/sample = %.1f\n", uSperSample);
+			stopWatch = timbit;
+
+			answer: 180uS per sample
+			*/
+			
+			// accel +-100
+			M5_LOGD("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
+
+			// gyro +- 1.0000
+			M5_LOGD("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
+
+			//M5_LOGD("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
+
+			M5_LOGD("|G| = %f", MAG_GYRO);
+			M5_LOGD("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
+			M5_LOGD("azim = %.1f  elev = %.1f ", azim, elev);
+#endif			
+
+
