@@ -6,6 +6,8 @@
 //#include <MahonyAHRS.h>
 #include <_RTC.h>
 #include <_OTAUpload.h>
+#include <_onPowerDn.h>
+
 #include "LowPassFilterIf.h"
 #include "stepConfig.h"
 #include "sd-logger.h"
@@ -120,13 +122,12 @@ static constexpr const float coefficient_tbl[3] = {  0.5f,				//scale GYRO
 													};
 
 #endif
+//--------------------------------------------------------------------------------
 
 static auto &display = (M5.Display);
 static window_t graphicWindow;
 static window_t textWindow;
 static window_t topWindow;
-
-static uint8_t calib_countdown = 0;
 
 static int prev_xpos[18];
 
@@ -212,98 +213,33 @@ void drawImuStats(const window_t& r, const m5::imu_data_t& imuDirect)
 
 //---------------------------------------------------------------------
 
-void updateCalibration(uint32_t uCalCount, bool bForceStart = false)
+void startCalibration(uint32_t waitS)
 {
-    calib_countdown = uCalCount;
+ 	Serial.printf("start calibration ... depth = %d of 255\n", calDepth);
+ 	
+    M5.Imu.setCalibration(calDepth, 
+    					  calDepth, 
+    					  calDepth);
 
-	static uint32_t stopwatch;
+	for (int i= 0; i < waitS; i++)
+	{
+		Serial.printf("cal %d of %d\n", i, waitS);
+		delay(1000);
+	}
 
+    M5.Imu.setCalibration(0, //accel
+    					  0, //gyro
+    					  0  //calDepth
+    					  );
 
-	// what do if count hits zero.
-    if (uCalCount == 0) bForceStart = true;
+	M5_LOGW("saving to NVS");
 
-    if (bForceStart)
-    {
-        memset(prev_xpos, 0, sizeof(prev_xpos));
-        display.fillScreen(TFT_BLACK);
-
-        if (uCalCount)
-        { 
-        	//M5.Speaker.tone(2000, 300);
-        	delay(1000);
-        	
-        	// Start calibration.
-			Serial.printf("start calibration ... depth = %d of 255\n", calDepth);
-			
-            M5.Imu.setCalibration(calDepth, calDepth, calDepth);
-          	stopwatch = millis();
-          	
-            // ※ The actual calibration operation is performed each time during M5.Imu.update.
-            //
-            // There are three arguments, which can be specified in the order of Accelerometer, gyro, and geomagnetic.
-            // If you want to calibrate only the Accelerometer, do the following.
-            // M5.Imu.setCalibration(100, 0, 0);
-            //
-            // If you want to calibrate only the gyro, do the following.
-            // M5.Imu.setCalibration(0, 100, 0);
-            //
-            // If you want to calibrate only the geomagnetism, do the following.
-            // M5.Imu.setCalibration(0, 0, 100);
-        }
-        else
-        { 
-        	// Stop calibration. (Continue calibration only for the geomagnetic sensor)
-        	//M5.Speaker.tone(2000, 200);
-        	//delay(200);
-        	//M5.Speaker.tone(1000, 200);
-
- 			Serial.printf("stop  calibration ... depth = %d of 255 time = %d mS\n", calDepth, millis()-stopwatch);
-            M5.Imu.setCalibration(0, //accel
-            					  0, //gyro
-            					  0  //calDepth
-            					  );
-
-            // If you want to stop all calibration, write this.
-            // M5.Imu.setCalibration(0, // accel
-            //						 0, // gyro
-            //						 0  // mag
-            //						 );
-
-            // save calibration values.
-
-            M5_LOGW("saving to NVS");
-            
-            M5.Imu.saveOffsetToNVS();
-        }
-    }
-
-    auto backcolor = (uCalCount == 0) ? TFT_BLACK : TFT_BLUE;
-
-	// clear text window.
-    display.fillRect(textWindow.win_topLeftX,
-    				 textWindow.win_topLeftY, 
-    				 textWindow.win_width, 
-    				 textWindow.win_heigth, 
-    				 backcolor);
-
-    if (uCalCount)
-    {
-        display.setCursor(textWindow.win_topLeftX + 2, textWindow.win_topLeftY + 1);
-        display.setTextColor(TFT_WHITE, TFT_BLUE);
-        display.printf("Countdown:%d ", uCalCount);
-
-		//M5.Speaker.tone(900, 100);
-    }
+	M5.Imu.saveOffsetToNVS();
+ 
+ 	Serial.println("cal ended");
 }
 
 //-------------------------------------------------------------
-
-void startCalibration(void)
-{
-    updateCalibration(10, true);
-}
-//-------------------------------------------------------------
-
 void showRect(char *msg, window_t &reader)
 {
 	M5_LOGW("%s x=%d y=%d w=%d h=%d", msg, reader.win_topLeftX, reader.win_topLeftY, reader.win_width, reader.win_heigth);
@@ -492,8 +428,19 @@ uint32_t hSmallTextArea;
 #define PLAYBACK  0
 #define LIVE      0
 
-File file;
+File hFile;
 
+
+//-----------------------------------------------------
+
+void powerdownSave(void)
+{
+	Serial.println(FG_CYAN "closing all files before shutdown" FG_DONE);
+	if (hFile) hFile.close();
+	
+}
+
+//-----------------------------------------------------
 
 void setup(void)
 {
@@ -641,52 +588,50 @@ void setup(void)
 								STATS_FONT, 1,
 								TFT_YELLOW, TFT_BLACK); 
 
-								
+	setup_onPwrDn();
+	setLongPressCB(powerdownSave);
+
+	
 	set_factoryDefaults();
 
 
 #if PLAYBACK
 	M5.Speaker.setVolume(20);
 
-	file = SD.open(BACKUP3, FILE_READ);
+	hFile = SD.open(BACKUP3, FILE_READ);
+	Serial.printf("MODE : Playback  FILE=%s\n", BACKUP3);
+	delay(2000);
+	
 #endif
 
 #if RECORDING
 	M5.Speaker.setVolume(100);
 	
 	// hold 5 versions on SD card
+	deleteFile(SD, "bench.dat");
 	deleteFile(SD, BACKUP5);
 	renameFile(SD, BACKUP4, BACKUP5);
 	renameFile(SD, BACKUP3, BACKUP4);
 	renameFile(SD, BACKUP2, BACKUP3);
 	renameFile(SD, BACKUP1, BACKUP2);
 	renameFile(SD, LOG_FILENAME, BACKUP1);
+
 	// open up logging.
-	appendFile( SD, LOG_FILENAME, "0 1.1");
+	//appendFile( SD, LOG_FILENAME, "0 1.1");
+
+	hFile = SD.open(LOG_FILENAME, FILE_WRITE);
+
+	startCalibration(15); // only on record, no point on playback
 	
  #endif
-
-	// want a cal before starting main loop?
-    uint32_t ok = millis();
-    while ( ok + 3000 > millis())
-    {
-		 M5.update();
- 
-		 // Calibration is initiated when a button or screen is clicked.
- 		if (   M5.BtnA.wasClicked() 
- 			|| M5.BtnPWR.wasClicked() 
- 			|| M5.Touch.getDetail().wasClicked())
-	 	startCalibration();
-	 	delay(50);
-	}
 
 	M5.Speaker.setVolume(20);
 
 }
 
-static float MAX_ACC = 0.0;
-static float MIN_ACC = 0.0;
-static float LAST_ACC = 0.0;
+static float max_ACC = 0.0;
+static float min_ACC = 0.0;
+static float last_ACC = 0.0;
 
 #define REPORT_AFTER_nSAMPLES 10
 
@@ -704,15 +649,13 @@ typedef struct {
 static oneEntry flightRecorder[FLIGHT_LEN];
 static int flightIndex = 0;
 
-//-----------------------------------------------------
-
 bool fread(char *dest, uint32_t len)
 {
 
-	if ( file.available()) 
+	if ( hFile.available()) 
 	{
 		String data;
-		data = file.readStringUntil('\n');
+		data = hFile.readStringUntil('\n');
 		//Serial.println(data);
 		strncpy (dest, data.c_str(), len);
 		return true;
@@ -738,13 +681,15 @@ void loop(void)
 	static float peakMagPlus  =  0;
 	static float peakMagMinus =  99999;
 	
-
+	//readPowerButton();
+	loop_onPwrDn();
 	
 	uint32_t stepsNow = getStepsTaken();
 	
 	char msg[40];
-	float MAG_ACC;
-    uint32_t diffTime;
+	float now_ACC;
+    uint32_t lapTime;
+    static float velocity = 0.0;
     
 	_loop_ota();
 
@@ -753,22 +698,31 @@ void loop(void)
 
 
 #if LIVE || RECORDING
+IMU_loop:
+
     auto bNewImuData = M5.Imu.update();
     if (bNewImuData)
 
     {
-
     	static uint32_t stopWatch;
-    	uint32_t timbit;
-    	
+    	if (!stopWatch) 
+    	{
+    		stopWatch = micros();
+    		return;
+    	}
+
+    	lapTime = micros() - stopWatch;
+    	stopWatch += lapTime;
+
+
+    	// tbd, doesn't see 100% monotonic ? why?
+		//Serial.println(lapTime);
+		//return;
+		
+    		
         // Obtain data on the current value of the IMU.
         m5::IMU_Class::imu_data_t data = M5.Imu.getImuData();
         
-		// auto data = blah blah;
-    	//char *hareball;
-        //auto data = M5.Imu.getImuData();
-        //hareball = data;
-
 		// bug with BMI270. accel is where gyro is and vicea versa
 		// swap now so all consumers don't have to swap.
 		
@@ -780,29 +734,31 @@ void loop(void)
         
         drawImuStats(graphicWindow, data);
 
-		float MAG_GYRO;
-
-		// normalize gyro magnitude (always should be
-		MAG_GYRO = sqrt(data.gyro.x * data.gyro.x +
-						data.gyro.y * data.gyro.y + 
-						data.gyro.z * data.gyro.z) / sqrt(3.0);
-
-		MAG_ACC = sqrt(data.accel.x * data.accel.x +
+		now_ACC = sqrt(data.accel.x * data.accel.x +
 					   data.accel.y * data.accel.y + 
 					   data.accel.z * data.accel.z);
 
-		float holdACC;
-		holdACC = (LAST_ACC < MAG_ACC) ? -MAG_ACC : MAG_ACC;
+		// need two samples to make a difference.
+		static bool bFirstAcc = true;
+		if (bFirstAcc)
+		{
+			bFirstAcc = false;
+			last_ACC = now_ACC;
+			return;	  // see you next time thru.
+		}
 		
-		if (MAX_ACC < holdACC) MAX_ACC = holdACC;
-		if (MIN_ACC > holdACC) MIN_ACC = holdACC;
+		// now_ACC is always postive, are we increasing or decreasing
+		float deltaACC = last_ACC - now_ACC;
+		
+		last_ACC = now_ACC;
+		
+		if (max_ACC < deltaACC) max_ACC = deltaACC;
+		if (min_ACC > deltaACC) min_ACC = deltaACC;
 
-		LAST_ACC = MAG_ACC;
+		velocity += deltaACC * 10.0 ; // dont use time. its weird * (float) lapTime;
+		//Serial.printf("t=%d d=%8.3f\tv = %8.3f\n", lapTime, deltaACC, velocity);
+		Serial.printf("%8.3f %8.3f\n", deltaACC, velocity);
 
-		// low pass filter --------------------
-        diffTime = micros() - oldTime;
-        oldTime += diffTime;
-        
 #endif
 
 
@@ -832,20 +788,25 @@ void loop(void)
 			}
 		}
 
-		MAG_ACC = fvalue;
-		diffTime = ftime - oldTime;
+		now_ACC = fvalue;
+		lapTime = ftime - oldTime;
 		oldTime = ftime;
-    
+
+    	if (lapTime < 4000 || lapTime > 6000) return; // bad data.
+    	
 #endif
 
-        float lpVal = 0.0;
+        float lpValACC = 0.0;
 
         // time in seconds please.
-        if (oldTime) lpVal = run_LP(MAG_ACC, (float)diffTime/1000000. , 1); // 1 hz lowpass
+        if (oldTime) lpValACC = run_LP(now_ACC, (float)lapTime/1000000. , 1); // 1 hz lowpass
 
+
+#if PLAYBACK
 		// diff time = 5244 uS rate = 190.7 S/s
-        //Serial.printf("diff time = %d uS rate = %.1f S/s\n", diffTime, 1000000./ (float) diffTime);
-        
+        // Serial.printf("ftime = %d diff time = %d uS rate = %.1f S/s\n", ftime, lapTime, 1000000./ (float) lapTime);
+        delay(1); 
+#endif        
 		// ------------------------------------
 
 		static uint16_t cnt;
@@ -873,22 +834,22 @@ void loop(void)
 		if ( data.accel.z < peakAnyMinus )  peakAnyMinus = data.accel.z;
 #endif
 
-		// remember MAG_ACC is always positive. 
-		if ( MAG_ACC < peakMagMinus) peakMagMinus = MAG_ACC;
-		if ( MAG_ACC > peakMagPlus) peakMagPlus = MAG_ACC;
+		// remember now_ACC is always positive. 
+		if ( now_ACC < peakMagMinus) peakMagMinus = now_ACC;
+		if ( now_ACC > peakMagPlus) peakMagPlus = now_ACC;
 
 		// rolling history
 		memcpy (&historyMag[0], &historyMag[1], (HIST_LEN) * sizeof(historyMag[0]));
 		
-		  historyMag[HIST_LEN-1] = MAG_ACC;
-		//historyMag[HIST_LEN-1] = lpVal;
+		  historyMag[HIST_LEN-1] = now_ACC;
+		//historyMag[HIST_LEN-1] = lpValACC;
 
 #if RECORDING
 		// don't record idle.
-		if (MAG_ACC > 1.0)
+		if (now_ACC > 1.0)
 		{
 			flightRecorder[flightIndex].clockUs = micros();
-			flightRecorder[flightIndex++].value = MAG_ACC;
+			flightRecorder[flightIndex++].value = now_ACC;
 		}
 
 		
@@ -896,30 +857,28 @@ void loop(void)
 		{
 			char msg[70];
 			uint32_t k;
-			M5.Speaker.setVolume(100);
+			M5.Speaker.setVolume(50);
 
 			Serial.println("dump flight recorder to SD"); 
 
 			M5.Speaker.tone(800, 500);
-			delay(500);
-			M5.Speaker.tone(1000, 500);
-			delay(500);
-			M5.Speaker.tone(1500, 500);
+
 			
+			bytesWritten += hFile.write((uint8_t *) flightRecorder, sizeof(flightRecorder));
+
+			/*
 			for (k = 0; k < FLIGHT_LEN; k++)
 			{
 				bytesWritten += sprintf(msg, "%d %f\n", flightRecorder[k].clockUs, flightRecorder[k].value);
 				appendFile(SD, LOG_FILENAME, msg);
 			}
 			Serial.printf("wc %d %d \n\n", k, bytesWritten);
+			*/
+			
+			Serial.printf("wc %d \n\n", bytesWritten);
+			
 			flightIndex = 0;
 
-			M5.Speaker.tone(2000, 500);
-			delay(500);
-			M5.Speaker.tone(2000, 500);
-			delay(500);
-			M5.Speaker.tone(2000, 500);
-			
 			M5.Speaker.setVolume(20);
 			
 		}
@@ -957,13 +916,13 @@ void loop(void)
 			static float decide;
 			static bool bLastState;
 			
-			    if (lpVal > longTermAvg + hysterisis)
+			    if (lpValACC > longTermAvg + hysterisis)
 			    {
 					decide = -5;
 					if (!bLastState) M5.Speaker.tone(2000, 100);
 					bLastState = 1;
 			    }
-			    else if (lpVal < longTermAvg - hysterisis)
+			    else if (lpValACC < longTermAvg - hysterisis)
 			    {
 			    	decide = 0;
 					if (bLastState) M5.Speaker.tone(1000, 100);
@@ -975,15 +934,15 @@ void loop(void)
 			    }
 
 			// Print sensor data in CSV format for Serial Studio visualization
-			Serial.printf("%d\t%f\t%f\t%f\n", (int) decide, longTermAvg , shortTermAvg, lpVal);
+			Serial.printf("%d\t%f\t%f\t%f\n", (int) decide, longTermAvg , shortTermAvg, lpValACC);
 
 
-			M5_LOGD("|A| = %f", MAG_ACC);
+			M5_LOGD("|A| = %f", now_ACC);
 			M5_LOGD("steps %d ", getStepsTaken());
 			M5_LOGD(" ");
 			
-			MAX_ACC = 0.0;
-			MIN_ACC = 0.0;
+			max_ACC = 0.0;
+			min_ACC = 0.0;
 		}
 
 		//----------------------------------------------------------
@@ -1037,21 +996,6 @@ void loop(void)
     }
 #endif 
 
-    int32_t secondsPassed = millis() / 1000;
-
-    if (prev_sec != secondsPassed)
-    {
-        prev_sec = secondsPassed;
-        
-        //M5_LOGI("secondsPassed:%d  frame:%d", secondsPassed, imuNumReads);
-        //imuNumReads = 0;
-
-        if (calib_countdown)
-            updateCalibration(calib_countdown - 1);
-
-        if ((secondsPassed & 7) == 0) // prevent WDT.
-            vTaskDelay(1);
-    }
 }
 
 
@@ -1106,7 +1050,7 @@ void loop(void)
 			//M5_LOGD("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
 
 			M5_LOGD("|G| = %f", MAG_GYRO);
-			M5_LOGD("%.1f < |A| < %.1f",  MIN_ACC, MAX_ACC);
+			M5_LOGD("%.1f < |A| < %.1f",  min_ACC, max_ACC);
 			M5_LOGD("azim = %.1f  elev = %.1f ", azim, elev);
 #endif			
 

@@ -69,7 +69,7 @@ void removeDir(fs::FS &fs, const char *path) {
 }
 
 void readFile(fs::FS &fs, const char *path) {
-  xprintf("Reading file: %s\n", path);
+  xprintf("Reading hFile: %s\n", path);
 
   File file = fs.open(path, FILE_READ);
   if (!file) {
@@ -85,7 +85,7 @@ void readFile(fs::FS &fs, const char *path) {
 }
 
 void writeFile(fs::FS &fs, const char *path, const char *message) {
-  xprintf("Writing file: %s\n", path);
+  xprintf("Writing hFile: %s\n", path);
 
   File file = fs.open(path, FILE_WRITE);
   if (!file) {
@@ -101,7 +101,7 @@ void writeFile(fs::FS &fs, const char *path, const char *message) {
 }
 
 void appendFile(fs::FS &fs, const char *path, const char *message) {
-  //xprintf("Appending to file: %s\n", path);
+  //xprintf("Appending to hFile: %s\n", path);
 
   File file = fs.open(path, FILE_APPEND);
   if (!file) {
@@ -119,7 +119,7 @@ void appendFile(fs::FS &fs, const char *path, const char *message) {
 }
 
 void renameFile(fs::FS &fs, const char *path1, const char *path2) {
-  xprintf("Renaming file %s to %s\n", path1, path2);
+  xprintf("Renaming hFile %s to %s\n", path1, path2);
   if (fs.rename(path1, path2)) {
   } else {
     xprintln("Rename failed");
@@ -127,7 +127,7 @@ void renameFile(fs::FS &fs, const char *path1, const char *path2) {
 }
 
 void deleteFile(fs::FS &fs, const char *path) {
-  xprintf("Deleting file: %s\n", path);
+  xprintf("Deleting hFile: %s\n", path);
   if (fs.remove(path)) {
   } else {
     xprintln("Delete failed");
