@@ -21,6 +21,20 @@
 #define BACKUP4 	 "/DATA4.BKU"
 #define BACKUP5 	 "/DATA5.BKU"
 
+#define FLIGHT_LEN 4000
+
+typedef struct {
+	bool bArmed;
+	float deltaACC;
+	float velocity;
+} oneEntry;
+
+
+static oneEntry flightRecorder[FLIGHT_LEN];
+static int flightIndex = 0;
+uint32_t bytesWritten = 0;
+
+
 // Strength of the calibration operation;
 // 0: disables calibration.
 // 1 is weakest and 255 is strongest.
@@ -221,10 +235,14 @@ void startCalibration(uint32_t waitS)
     					  calDepth, 
     					  calDepth);
 
+	M5.Speaker.setVolume(30);
+
 	for (int i= 0; i < waitS; i++)
 	{
+		
+		M5.Speaker.tone(800, 100);
 		Serial.printf("cal %d of %d\n", i, waitS);
-		delay(1000);
+		delay(900);
 	}
 
     M5.Imu.setCalibration(0, //accel
@@ -235,64 +253,22 @@ void startCalibration(uint32_t waitS)
 	M5_LOGW("saving to NVS");
 
 	M5.Imu.saveOffsetToNVS();
- 
+
+	M5.Speaker.setVolume(80);
+	M5.Speaker.tone(1000, 100);
+ 	delay(500);
+	M5.Speaker.tone(700, 100);
+	M5.Speaker.setVolume(30);
+ 	
  	Serial.println("cal ended");
+ 	delay(1000);
+ 	
 }
 
 //-------------------------------------------------------------
 void showRect(char *msg, window_t &reader)
 {
 	M5_LOGW("%s x=%d y=%d w=%d h=%d", msg, reader.win_topLeftX, reader.win_topLeftY, reader.win_width, reader.win_heigth);
-}
-
-//-------------------------------------------------------------
-//-------------------------------------------------------------
-double azimuth(Point3D target)
-{
-    // Define origin and target positions
-    Point3D origin = {0.0, 0.0, 0.0};
-    //Point3D target = {10.0, 10.0, 5.0}; // Northeast quadrant
-
-    // Compute differences
-    double dx = target.x - origin.x;
-    double dy = target.y - origin.y;
-
-    // Calculate azimuth (Clockwise from North)
-    double azimuth_rad = atan2(dx, dy);
-    double azimuth_deg = azimuth_rad * (180.0 / M_PI);
-
-    // Keep angle positive between 0 and 360 degrees
-    //if (azimuth_deg < 0) {
-    //    azimuth_deg += 360.0;
-    //}
-
-    //printf("Target Vector: dx=%.2f, dy=%.2f\n", dx, dy);
-    //printf("Calculated Azimuth: %.2f degrees\n", azimuth_deg);
-
-    return azimuth_deg;
-}
-
-//-------------------------------------------------------------
-
-double elevation(Point3D target) {
-    // Define 3D Cartesian coordinates (X, Y, Z)
-    double x = target.x;
-    double y = target.y;
-    double z = target.z; // This is your absolute height/elevation
-
-    // 1. Absolute vertical elevation
-    double elevation_value = z;
-
-    // 2. Horizontal distance from the origin in the X-Y plane
-    double horizontal_dist = sqrt((x * x) + (y * y));
-
-    // 3. Compute elevation angle (in radians) using atan2 to avoid division-by-zero errors
-    double elevation_angle_rad = atan2(elevation_value, horizontal_dist);
-
-    // 4. Convert the angle from radians to degrees
-    double elevation_angle_deg = elevation_angle_rad * (180.0 / M_PI);
-
-	return elevation_angle_deg;
 }
 
 //-------------------------------------------------------------
@@ -438,7 +414,50 @@ void powerdownSave(void)
 	Serial.println(FG_CYAN "closing all files before shutdown" FG_DONE);
 	if (hFile) hFile.close();
 	
+	listDir(SD, "/", 2);
+	Serial.println("bye");
+	delay(3000);
 }
+
+
+void rotateLogs(void)
+{
+	if (hFile)
+	{
+		if (flightIndex) // some still in the pipe.
+		{
+			bytesWritten += hFile.write((uint8_t *) flightRecorder, flightIndex * sizeof(oneEntry));
+		}
+		
+		Serial.printf("closing %s size = %d\n", LOG_FILENAME, bytesWritten);
+
+		bytesWritten  = 0;
+		flightIndex = 0;
+		
+		hFile.close();
+	}
+	
+	listDir(SD, "/", 2);
+
+	// hold 5 versions on SD card
+	deleteFile(SD, BACKUP5);
+	renameFile(SD, BACKUP4, BACKUP5);
+	renameFile(SD, BACKUP3, BACKUP4);
+	renameFile(SD, BACKUP2, BACKUP3);
+	renameFile(SD, BACKUP1, BACKUP2);
+	renameFile(SD, LOG_FILENAME, BACKUP1);
+
+	listDir(SD, "/", 2);
+	delay(3000);
+
+	bytesWritten = 0;	
+	hFile = SD.open(LOG_FILENAME, FILE_WRITE);
+
+	assert(hFile);
+	
+}
+
+
 
 //-----------------------------------------------------
 
@@ -589,8 +608,6 @@ void setup(void)
 								TFT_YELLOW, TFT_BLACK); 
 
 	setup_onPwrDn();
-	setLongPressCB(powerdownSave);
-
 	
 	set_factoryDefaults();
 
@@ -605,22 +622,13 @@ void setup(void)
 #endif
 
 #if RECORDING
-	M5.Speaker.setVolume(100);
+	deleteFile(SD, "/bench.dat");
+
+	setLongPressCB(powerdownSave);
+	setShortPressCB(rotateLogs);
+
+	rotateLogs();
 	
-	// hold 5 versions on SD card
-	deleteFile(SD, "bench.dat");
-	deleteFile(SD, BACKUP5);
-	renameFile(SD, BACKUP4, BACKUP5);
-	renameFile(SD, BACKUP3, BACKUP4);
-	renameFile(SD, BACKUP2, BACKUP3);
-	renameFile(SD, BACKUP1, BACKUP2);
-	renameFile(SD, LOG_FILENAME, BACKUP1);
-
-	// open up logging.
-	//appendFile( SD, LOG_FILENAME, "0 1.1");
-
-	hFile = SD.open(LOG_FILENAME, FILE_WRITE);
-
 	startCalibration(15); // only on record, no point on playback
 	
  #endif
@@ -640,14 +648,6 @@ static float last_ACC = 0.0;
 static float historyMag[HIST_LEN];
 static int historyIndex = 0;
 
-#define FLIGHT_LEN 5000
-typedef struct {
-	uint32_t clockUs;
-	float value;
-} oneEntry;
-
-static oneEntry flightRecorder[FLIGHT_LEN];
-static int flightIndex = 0;
 
 bool fread(char *dest, uint32_t len)
 {
@@ -672,7 +672,6 @@ void loop(void)
 	static uint32_t lastNumSteps;
 	static uint16_t lastAction = -1;
 	static uint32_t keptSteps;
-	static uint32_t bytesWritten = 0;
 	static uint32_t oldTime;
 
 	static float peakAnyPlus  = 20;   // typical  plus hard hits go up to 1000
@@ -748,17 +747,36 @@ IMU_loop:
 		}
 		
 		// now_ACC is always postive, are we increasing or decreasing
-		float deltaACC = last_ACC - now_ACC;
+		
+		float deltaACC = now_ACC - last_ACC;
 		
 		last_ACC = now_ACC;
 		
 		if (max_ACC < deltaACC) max_ACC = deltaACC;
 		if (min_ACC > deltaACC) min_ACC = deltaACC;
 
-		velocity += deltaACC * 10.0 ; // dont use time. its weird * (float) lapTime;
-		//Serial.printf("t=%d d=%8.3f\tv = %8.3f\n", lapTime, deltaACC, velocity);
-		Serial.printf("%8.3f %8.3f\n", deltaACC, velocity);
+		// velocity will always be positive because we cannot determine direction
+		// from an absolute accel value.
 
+		// sometimes it goes a tenth of a point below zero. 
+		velocity += deltaACC; // dont use time as per integration, doesnt work;
+
+		static bool bArmed;
+
+		if (!bArmed  && velocity > 25)
+		{
+			bArmed = true;
+		}
+
+		if (bArmed && velocity < 10)
+		{
+			bArmed = false;
+		}
+
+	#if LIVE
+		//Serial.printf("t=%d d=%8.3f\tv = %8.3f\n", lapTime, deltaACC, velocity);
+		Serial.printf("%d %8.3f %8.3f\n", bArmed, deltaACC, velocity);
+	#endif
 #endif
 
 
@@ -815,23 +833,6 @@ IMU_loop:
 #if LIVE
         oldTime = micros();
         
-		Point3D stick;
-		stick.x = data.gyro.x;
-		stick.y = data.gyro.y;
-		stick.z = data.gyro.z;
-
-		double elev = elevation(stick);
-		double azim = azimuth(stick);
-
-
-		
-		if ( data.accel.x > peakAnyPlus )  peakAnyPlus = data.accel.x;
-		if ( data.accel.y > peakAnyPlus )  peakAnyPlus = data.accel.y;
-		if ( data.accel.z > peakAnyPlus )  peakAnyPlus = data.accel.z;
-		
-		if ( data.accel.x < peakAnyMinus )  peakAnyMinus = data.accel.x;
-		if ( data.accel.y < peakAnyMinus )  peakAnyMinus = data.accel.y;
-		if ( data.accel.z < peakAnyMinus )  peakAnyMinus = data.accel.z;
 #endif
 
 		// remember now_ACC is always positive. 
@@ -845,13 +846,11 @@ IMU_loop:
 		//historyMag[HIST_LEN-1] = lpValACC;
 
 #if RECORDING
-		// don't record idle.
-		if (now_ACC > 1.0)
-		{
-			flightRecorder[flightIndex].clockUs = micros();
-			flightRecorder[flightIndex++].value = now_ACC;
-		}
 
+		flightRecorder[flightIndex].bArmed = bArmed;
+		flightRecorder[flightIndex].deltaACC = deltaACC;
+		flightRecorder[flightIndex++].velocity = velocity;
+		
 		
 		if (flightIndex == FLIGHT_LEN)
 		{
@@ -861,19 +860,12 @@ IMU_loop:
 
 			Serial.println("dump flight recorder to SD"); 
 
-			M5.Speaker.tone(800, 500);
-
+			M5.Speaker.tone(2000, 50);
 			
 			bytesWritten += hFile.write((uint8_t *) flightRecorder, sizeof(flightRecorder));
 
-			/*
-			for (k = 0; k < FLIGHT_LEN; k++)
-			{
-				bytesWritten += sprintf(msg, "%d %f\n", flightRecorder[k].clockUs, flightRecorder[k].value);
-				appendFile(SD, LOG_FILENAME, msg);
-			}
-			Serial.printf("wc %d %d \n\n", k, bytesWritten);
-			*/
+			// do I have to worry about packing?
+			assert( sizeof(flightRecorder) == (FLIGHT_LEN * sizeof(oneEntry)));
 			
 			Serial.printf("wc %d \n\n", bytesWritten);
 			
@@ -885,7 +877,7 @@ IMU_loop:
 #endif
 		
 		//----------------------------------------------------------
-	
+#if 0	
 		if (cnt == REPORT_AFTER_nSAMPLES)
 		{	
 			cnt = 0;
@@ -940,10 +932,11 @@ IMU_loop:
 			M5_LOGD("|A| = %f", now_ACC);
 			M5_LOGD("steps %d ", getStepsTaken());
 			M5_LOGD(" ");
-			
+
 			max_ACC = 0.0;
 			min_ACC = 0.0;
 		}
+#endif
 
 		//----------------------------------------------------------
 
@@ -1052,6 +1045,59 @@ IMU_loop:
 			M5_LOGD("|G| = %f", MAG_GYRO);
 			M5_LOGD("%.1f < |A| < %.1f",  min_ACC, max_ACC);
 			M5_LOGD("azim = %.1f  elev = %.1f ", azim, elev);
+
+
+//-------------------------------------------------------------
+//-------------------------------------------------------------
+double azimuth(Point3D target)
+{
+    // Define origin and target positions
+    Point3D origin = {0.0, 0.0, 0.0};
+    //Point3D target = {10.0, 10.0, 5.0}; // Northeast quadrant
+
+    // Compute differences
+    double dx = target.x - origin.x;
+    double dy = target.y - origin.y;
+
+    // Calculate azimuth (Clockwise from North)
+    double azimuth_rad = atan2(dx, dy);
+    double azimuth_deg = azimuth_rad * (180.0 / M_PI);
+
+    // Keep angle positive between 0 and 360 degrees
+    //if (azimuth_deg < 0) {
+    //    azimuth_deg += 360.0;
+    //}
+
+    //printf("Target Vector: dx=%.2f, dy=%.2f\n", dx, dy);
+    //printf("Calculated Azimuth: %.2f degrees\n", azimuth_deg);
+
+    return azimuth_deg;
+}
+
+//-------------------------------------------------------------
+
+double elevation(Point3D target) {
+    // Define 3D Cartesian coordinates (X, Y, Z)
+    double x = target.x;
+    double y = target.y;
+    double z = target.z; // This is your absolute height/elevation
+
+    // 1. Absolute vertical elevation
+    double elevation_value = z;
+
+    // 2. Horizontal distance from the origin in the X-Y plane
+    double horizontal_dist = sqrt((x * x) + (y * y));
+
+    // 3. Compute elevation angle (in radians) using atan2 to avoid division-by-zero errors
+    double elevation_angle_rad = atan2(elevation_value, horizontal_dist);
+
+    // 4. Convert the angle from radians to degrees
+    double elevation_angle_deg = elevation_angle_rad * (180.0 / M_PI);
+
+	return elevation_angle_deg;
+}
+
+			
 #endif			
 
 

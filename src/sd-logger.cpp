@@ -20,7 +20,7 @@
 
 
 void listDir(fs::FS &fs, const char *dirname, uint8_t levels) {
-  xprintf("Listing directory: %s\n", dirname);
+  xprintf("\nListing directory: %s --------\n", dirname);
 
   File root = fs.open(dirname);
   if (!root) {
