@@ -32,7 +32,9 @@ typedef struct {
 
 static oneEntry flightRecorder[FLIGHT_LEN];
 static int flightIndex = 0;
-uint32_t bytesWritten = 0;
+uint32_t bytesNotSavedYet = 0;
+uint32_t bytesInFlightRecorder = 0;
+
 
 
 // Strength of the calibration operation;
@@ -406,52 +408,88 @@ uint32_t hSmallTextArea;
 
 File hFile;
 
+//-----------------------------------------------------
+// do not close. this is not your job.
+// return number of bytes in flight recorder .
+
+uint32_t flushRecorder(void)
+{
+	uint32_t ret = 0;
+	
+	if (hFile)
+	{
+		if (flightIndex) // some still in the pipe.
+		{
+			bytesNotSavedYet += hFile.write((uint8_t *) flightRecorder, flightIndex * sizeof(oneEntry));
+			bytesInFlightRecorder += flightIndex * sizeof(oneEntry);
+		}
+		
+		Serial.printf("flush additional %d entries to %s\n", flightIndex, LOG_FILENAME );
+
+		ret = bytesInFlightRecorder;
+		
+		bytesNotSavedYet  = 0;
+		flightIndex = 0;
+
+	}
+	return ret;
+}
 
 //-----------------------------------------------------
 
 void powerdownSave(void)
 {
+	flushRecorder();
+	
 	Serial.println(FG_CYAN "closing all files before shutdown" FG_DONE);
-	if (hFile) hFile.close();
+	if (bytesInFlightRecorder)
+	{
+		hFile.close();
+		bytesInFlightRecorder = 0;
+	}
 	
 	listDir(SD, "/", 2);
 	Serial.println("bye");
 	delay(3000);
 }
 
-
 void rotateLogs(void)
 {
-	if (hFile)
-	{
-		if (flightIndex) // some still in the pipe.
-		{
-			bytesWritten += hFile.write((uint8_t *) flightRecorder, flightIndex * sizeof(oneEntry));
-		}
-		
-		Serial.printf("closing %s size = %d\n", LOG_FILENAME, bytesWritten);
+	uint32_t bytesInFile = 0;
+	
+	flushRecorder();
 
-		bytesWritten  = 0;
-		flightIndex = 0;
-		
+	if (bytesInFlightRecorder)
+	{
 		hFile.close();
+		// no! do this laterbytesInFlightRecorder = 0;
 	}
 	
 	listDir(SD, "/", 2);
 
-	// hold 5 versions on SD card
-	deleteFile(SD, BACKUP5);
-	renameFile(SD, BACKUP4, BACKUP5);
-	renameFile(SD, BACKUP3, BACKUP4);
-	renameFile(SD, BACKUP2, BACKUP3);
-	renameFile(SD, BACKUP1, BACKUP2);
-	renameFile(SD, LOG_FILENAME, BACKUP1);
+	if (bytesInFlightRecorder)
+	{
+		// hold 5 versions on SD card if flight recorder was written.
+		deleteFile(SD, BACKUP5);
+		renameFile(SD, BACKUP4, BACKUP5);
+		renameFile(SD, BACKUP3, BACKUP4);
+		renameFile(SD, BACKUP2, BACKUP3);
+		renameFile(SD, BACKUP1, BACKUP2);
+		renameFile(SD, LOG_FILENAME, BACKUP1);
 
-	listDir(SD, "/", 2);
-	delay(3000);
+		listDir(SD, "/", 2);
+		delay(3000);
+	}
+	else
+	{
+		Serial.println("skipping rotate, nothing recorded");
+	}
 
-	bytesWritten = 0;	
+	
+
+	bytesInFile = 0;	
 	hFile = SD.open(LOG_FILENAME, FILE_WRITE);
+	bytesInFlightRecorder = 0;
 
 	assert(hFile);
 	
@@ -627,7 +665,7 @@ void setup(void)
 	setLongPressCB(powerdownSave);
 	setShortPressCB(rotateLogs);
 
-	rotateLogs();
+	// do not rotate on power up!
 	
 	startCalibration(15); // only on record, no point on playback
 	
@@ -689,6 +727,11 @@ void loop(void)
 	float now_ACC;
     uint32_t lapTime;
     static float velocity = 0.0;
+
+    // if accel below X keep recording next N samples
+    #define KEEP_mpsS 15   // meters per second per second
+    #define KEEP_CTR 300   // keep next N samples after accel goes quiet.		
+    static uint8_t keepRecordingCtr = 0;
     
 	_loop_ota();
 
@@ -737,6 +780,8 @@ IMU_loop:
 					   data.accel.y * data.accel.y + 
 					   data.accel.z * data.accel.z);
 
+		if (now_ACC > KEEP_mpsS ) keepRecordingCtr = KEEP_CTR;
+		
 		// need two samples to make a difference.
 		static bool bFirstAcc = true;
 		if (bFirstAcc)
@@ -773,10 +818,10 @@ IMU_loop:
 			bArmed = false;
 		}
 
-	#if LIVE
-		//Serial.printf("t=%d d=%8.3f\tv = %8.3f\n", lapTime, deltaACC, velocity);
-		Serial.printf("%d %8.3f %8.3f\n", bArmed, deltaACC, velocity);
-	#endif
+		if (keepRecordingCtr)
+		{
+			Serial.printf("%d %8.3f %8.3f\n", bArmed, deltaACC, velocity);
+		}
 #endif
 
 
@@ -847,32 +892,38 @@ IMU_loop:
 
 #if RECORDING
 
-		flightRecorder[flightIndex].bArmed = bArmed;
-		flightRecorder[flightIndex].deltaACC = deltaACC;
-		flightRecorder[flightIndex++].velocity = velocity;
-		
-		
-		if (flightIndex == FLIGHT_LEN)
+		if (keepRecordingCtr)
 		{
-			char msg[70];
-			uint32_t k;
-			M5.Speaker.setVolume(50);
-
-			Serial.println("dump flight recorder to SD"); 
-
-			M5.Speaker.tone(2000, 50);
+			keepRecordingCtr--;
 			
-			bytesWritten += hFile.write((uint8_t *) flightRecorder, sizeof(flightRecorder));
+			flightRecorder[flightIndex].bArmed = bArmed;
+			flightRecorder[flightIndex].deltaACC = deltaACC;
+			flightRecorder[flightIndex++].velocity = velocity;
+			
+			
+			if (flightIndex == FLIGHT_LEN)
+			{
+				char msg[70];
+				uint32_t k;
+				M5.Speaker.setVolume(50);
 
-			// do I have to worry about packing?
-			assert( sizeof(flightRecorder) == (FLIGHT_LEN * sizeof(oneEntry)));
-			
-			Serial.printf("wc %d \n\n", bytesWritten);
-			
-			flightIndex = 0;
+				Serial.println("dump flight recorder to SD"); 
 
-			M5.Speaker.setVolume(20);
-			
+				M5.Speaker.tone(2000, 50); 
+				
+				bytesNotSavedYet += hFile.write((uint8_t *) flightRecorder, sizeof(flightRecorder));
+				bytesInFlightRecorder += sizeof(flightRecorder);
+
+				// do I have to worry about packing?
+				assert( sizeof(flightRecorder) == (FLIGHT_LEN * sizeof(oneEntry)));
+				
+				Serial.printf("flight recorder size = %d \n\n", bytesInFlightRecorder);
+				
+				flightIndex = 0;
+
+				M5.Speaker.setVolume(20);
+				
+			}
 		}
 #endif
 		
