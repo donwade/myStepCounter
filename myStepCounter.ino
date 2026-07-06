@@ -14,7 +14,10 @@
 #include "pretty.h"
 
 
-#define LOG_FILENAME "/FLIGHT.LOG"
+#define LINE Serial.printf("%s:%d \n", __FUNCTION__, __LINE__);
+
+
+#define FLIGHT_LOG "/FLIGHT.LOG"
 #define BACKUP1 	 "/DATA1.BKU"
 #define BACKUP2 	 "/DATA2.BKU"
 #define BACKUP3 	 "/DATA3.BKU"
@@ -35,6 +38,10 @@ static int flightIndex = 0;
 uint32_t bytesNotSavedYet = 0;
 uint32_t bytesInFlightRecorder = 0;
 
+// playback vars
+uint32_t totalNumRecordsLoaded = 0;
+uint32_t currentReadRecordNum = 0;
+uint32_t totalNumberEntries; // file size/oneEntry
 
 
 // Strength of the calibration operation;
@@ -402,9 +409,10 @@ uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
 uint32_t hLargeTextArea; 
 uint32_t hSmallTextArea;
 
-#define RECORDING 1
-#define PLAYBACK  0
-#define LIVE      0
+#define CONTINUOUS  1
+#define RECORDING 	1
+#define PLAYBACK  	0
+#define LIVE        0
 
 File hFile;
 
@@ -424,7 +432,7 @@ uint32_t flushRecorder(void)
 			bytesInFlightRecorder += flightIndex * sizeof(oneEntry);
 		}
 		
-		Serial.printf("flush additional %d entries to %s\n", flightIndex, LOG_FILENAME );
+		Serial.printf("flush additional %d entries to %s\n", flightIndex, FLIGHT_LOG );
 
 		ret = bytesInFlightRecorder;
 		
@@ -439,59 +447,43 @@ uint32_t flushRecorder(void)
 
 void powerdownSave(void)
 {
+#if PLAYBACK
+	Serial.printf("%s nothing to do in PLAYBACK\n", __FUNCTION__);
+	return;
+#endif
 	flushRecorder();
 	
 	Serial.println(FG_CYAN "closing all files before shutdown" FG_DONE);
-	if (bytesInFlightRecorder)
-	{
-		hFile.close();
-		bytesInFlightRecorder = 0;
-	}
+
+	// flight recorder closed. 
+	hFile.close();
 	
 	listDir(SD, "/", 2);
 	Serial.println("bye");
-	delay(3000);
+	delay(1000);
 }
 
+
+// only call on powerup.
 void rotateLogs(void)
 {
-	uint32_t bytesInFile = 0;
-	
-	flushRecorder();
-
-	if (bytesInFlightRecorder)
-	{
-		hFile.close();
-		// no! do this laterbytesInFlightRecorder = 0;
-	}
 	
 	listDir(SD, "/", 2);
 
-	if (bytesInFlightRecorder)
-	{
-		// hold 5 versions on SD card if flight recorder was written.
-		deleteFile(SD, BACKUP5);
-		renameFile(SD, BACKUP4, BACKUP5);
-		renameFile(SD, BACKUP3, BACKUP4);
-		renameFile(SD, BACKUP2, BACKUP3);
-		renameFile(SD, BACKUP1, BACKUP2);
-		renameFile(SD, LOG_FILENAME, BACKUP1);
+#if PLAYBACK
+	Serial.printf("%s nothing to do in PLAYBACK\n", __FUNCTION__);
+	return;
+#endif
+	// hold 5 versions on SD card if flight recorder was written.
+	deleteFile(SD, BACKUP5);
+	renameFile(SD, BACKUP4, BACKUP5);
+	renameFile(SD, BACKUP3, BACKUP4);
+	renameFile(SD, BACKUP2, BACKUP3);
+	renameFile(SD, BACKUP1, BACKUP2);
+	renameFile(SD, FLIGHT_LOG, BACKUP1);
 
-		listDir(SD, "/", 2);
-		delay(3000);
-	}
-	else
-	{
-		Serial.println("skipping rotate, nothing recorded");
-	}
-
-	
-
-	bytesInFile = 0;	
-	hFile = SD.open(LOG_FILENAME, FILE_WRITE);
-	bytesInFlightRecorder = 0;
-
-	assert(hFile);
+	listDir(SD, "/", 2);
+	delay(3000);
 	
 }
 
@@ -649,34 +641,32 @@ void setup(void)
 	
 	set_factoryDefaults();
 
-
-#if PLAYBACK
 	M5.Speaker.setVolume(20);
 
-	hFile = SD.open(BACKUP3, FILE_READ);
-	Serial.printf("MODE : Playback  FILE=%s\n", BACKUP3);
-	delay(2000);
+#if PLAYBACK
+
+	hFile = SD.open(FLIGHT_LOG, FILE_READ);
+	Serial.printf(FG_YELLOW "MODE : Playback  FILE=%s\n" FG_DONE, FLIGHT_LOG);
+	freadOneBlock();
 	
 #endif
 
 #if RECORDING
 	deleteFile(SD, "/bench.dat");
 
+	rotateLogs();
+	
 	setLongPressCB(powerdownSave);
-	setShortPressCB(rotateLogs);
 
-	// do not rotate on power up!
+	//setShortPressCB(rotateLogs);
 	
 	startCalibration(15); // only on record, no point on playback
 	
  #endif
 
-	M5.Speaker.setVolume(20);
 
 }
 
-static float max_ACC = 0.0;
-static float min_ACC = 0.0;
 static float last_ACC = 0.0;
 
 #define REPORT_AFTER_nSAMPLES 10
@@ -686,8 +676,45 @@ static float last_ACC = 0.0;
 static float historyMag[HIST_LEN];
 static int historyIndex = 0;
 
+//-----------------------------------------------------
+uint32_t freadOneBlock()
+{
+	totalNumberEntries = hFile.size();	// number of bytes.
+	totalNumberEntries /= sizeof(oneEntry);
 
-bool fread(char *dest, uint32_t len)
+	
+	int32_t bytesRead = hFile.read((uint8_t *) flightRecorder, FLIGHT_LEN * sizeof(oneEntry));
+
+	if (bytesRead < 0)
+	{
+		Serial.printf("cannot continue. file %s returns %d on read\n", FLIGHT_LOG,  bytesRead);
+		delay(-1);
+	}
+
+	totalNumRecordsLoaded = bytesRead/sizeof(oneEntry);
+	
+	Serial.printf("%s: bytes read %d, records found %d\n", __FUNCTION__, bytesRead, totalNumRecordsLoaded);
+	delay(10000);
+	
+	currentReadRecordNum = 0;
+	return totalNumRecordsLoaded;
+}
+bool fgetLine(oneEntry &input)
+{
+	if (currentReadRecordNum == totalNumRecordsLoaded)
+	{
+
+		Serial.println("STOP TO TEST"); delay(-1);
+		// exhausted current block, get another if possible.
+		if (! freadOneBlock()) return false;
+		currentReadRecordNum = 0;
+	}
+	input = flightRecorder[currentReadRecordNum++];
+	return true;
+}
+//-----------------------------------------------------
+//-----------------------------------------------------
+bool freadLine(char *dest, uint32_t len)
 {
 
 	if ( hFile.available()) 
@@ -712,11 +739,15 @@ void loop(void)
 	static uint32_t keptSteps;
 	static uint32_t oldTime;
 
+	static uint32_t lineCtr = 0;
+
 	static float peakAnyPlus  = 20;   // typical  plus hard hits go up to 1000
 	static float peakAnyMinus = -20;  // typical  minus
 	
 	static float peakMagPlus  =  0;
 	static float peakMagMinus =  99999;
+
+	bool bDecide = false;
 	
 	//readPowerButton();
 	loop_onPwrDn();
@@ -725,7 +756,7 @@ void loop(void)
 	
 	char msg[40];
 	float now_ACC;
-    uint32_t lapTime;
+	
     static float velocity = 0.0;
 
     // if accel below X keep recording next N samples
@@ -743,24 +774,9 @@ void loop(void)
 IMU_loop:
 
     auto bNewImuData = M5.Imu.update();
+    
     if (bNewImuData)
-
     {
-    	static uint32_t stopWatch;
-    	if (!stopWatch) 
-    	{
-    		stopWatch = micros();
-    		return;
-    	}
-
-    	lapTime = micros() - stopWatch;
-    	stopWatch += lapTime;
-
-
-    	// tbd, doesn't see 100% monotonic ? why?
-		//Serial.println(lapTime);
-		//return;
-		
     		
         // Obtain data on the current value of the IMU.
         m5::IMU_Class::imu_data_t data = M5.Imu.getImuData();
@@ -780,7 +796,7 @@ IMU_loop:
 					   data.accel.y * data.accel.y + 
 					   data.accel.z * data.accel.z);
 
-		if (now_ACC > KEEP_mpsS ) keepRecordingCtr = KEEP_CTR;
+		if (CONTINUOUS || now_ACC > KEEP_mpsS ) keepRecordingCtr = KEEP_CTR;
 		
 		// need two samples to make a difference.
 		static bool bFirstAcc = true;
@@ -790,6 +806,7 @@ IMU_loop:
 			last_ACC = now_ACC;
 			return;	  // see you next time thru.
 		}
+
 		
 		// now_ACC is always postive, are we increasing or decreasing
 		
@@ -797,9 +814,6 @@ IMU_loop:
 		
 		last_ACC = now_ACC;
 		
-		if (max_ACC < deltaACC) max_ACC = deltaACC;
-		if (min_ACC > deltaACC) min_ACC = deltaACC;
-
 		// velocity will always be positive because we cannot determine direction
 		// from an absolute accel value.
 
@@ -824,71 +838,36 @@ IMU_loop:
 		}
 #endif
 
-
-#define LINE Serial.printf("%s:%d \n", __FUNCTION__, __LINE__);
-
 #if PLAYBACK
-	char temp[70];
-	uint32_t ftime;
-	float	 fvalue;
+	oneEntry lineInput;
 	
-	if ( fread(temp, sizeof(temp))) 
+	if ( fgetLine(lineInput)) 
 	{
-		sscanf(temp, "%d %f", &ftime, &fvalue);
 
-		if (!oldTime)
-		{	
-			// very first time thru, some setup needed
-			oldTime = ftime;
-			if ( fread(temp, sizeof(temp)))
-			{
-				sscanf(temp, "%d %f", &ftime, &fvalue);
-			}
-			else
-			{
-				Serial.println("SOURE FILE TOO SMALL ... zzzz");
-				delay(-1);
-			}
-		}
 
-		now_ACC = fvalue;
-		lapTime = ftime - oldTime;
-		oldTime = ftime;
+		now_ACC = lineInput.deltaACC;
+		velocity = lineInput.velocity;
+		bDecide = lineInput.bArmed;
 
-    	if (lapTime < 4000 || lapTime > 6000) return; // bad data.
+		Serial.printf("%5d %d %8.3f %8.3f \n", ++lineCtr, bDecide, now_ACC, velocity);
     	
 #endif
 
-        float lpValACC = 0.0;
+        float lpValACC;
 
-        // time in seconds please.
-        if (oldTime) lpValACC = run_LP(now_ACC, (float)lapTime/1000000. , 1); // 1 hz lowpass
-
-
-#if PLAYBACK
-		// diff time = 5244 uS rate = 190.7 S/s
-        // Serial.printf("ftime = %d diff time = %d uS rate = %.1f S/s\n", ftime, lapTime, 1000000./ (float) lapTime);
-        delay(1); 
-#endif        
-		// ------------------------------------
-
-		static uint16_t cnt;
-		cnt++;
+        // time in seconds please. is it 5000uS per sample
+        lpValACC = run_LP(now_ACC, 5000./1000000. , 1); // 1 hz lowpass
 
 #if LIVE
         oldTime = micros();
         
 #endif
 
-		// remember now_ACC is always positive. 
-		if ( now_ACC < peakMagMinus) peakMagMinus = now_ACC;
-		if ( now_ACC > peakMagPlus) peakMagPlus = now_ACC;
 
 		// rolling history
 		memcpy (&historyMag[0], &historyMag[1], (HIST_LEN) * sizeof(historyMag[0]));
 		
 		  historyMag[HIST_LEN-1] = now_ACC;
-		//historyMag[HIST_LEN-1] = lpValACC;
 
 #if RECORDING
 
@@ -927,67 +906,7 @@ IMU_loop:
 		}
 #endif
 		
-		//----------------------------------------------------------
-#if 0	
-		if (cnt == REPORT_AFTER_nSAMPLES)
-		{	
-			cnt = 0;
-			const int SHORT = 20;
-			uint32_t j = 0;
 
-			// ---- calc avg
-			float longTermAvg = 0;
-			float shortTermAvg = 0;
-			
-			j = 0;			
-			for (float  hist : historyMag) 
-			{
-				longTermAvg += historyMag[j];
-				
-				if (j > (HIST_LEN - SHORT)) shortTermAvg += historyMag[j];
-				j++;
-				
-				//printf("[%2d] %f\n", j, hist);
-			}
-			longTermAvg /= (float) j;
-			shortTermAvg /= SHORT;
-			
-			const int8_t hysterisis = 10;
-			
-			// bias up the line for display purposes
-
-			static float decide;
-			static bool bLastState;
-			
-			    if (lpValACC > longTermAvg + hysterisis)
-			    {
-					decide = -5;
-					if (!bLastState) M5.Speaker.tone(2000, 100);
-					bLastState = 1;
-			    }
-			    else if (lpValACC < longTermAvg - hysterisis)
-			    {
-			    	decide = 0;
-					if (bLastState) M5.Speaker.tone(1000, 100);
-					bLastState = 0;
-			    }
-			    else
-			    {
-					//decide = -20;  // use last decide
-			    }
-
-			// Print sensor data in CSV format for Serial Studio visualization
-			Serial.printf("%d\t%f\t%f\t%f\n", (int) decide, longTermAvg , shortTermAvg, lpValACC);
-
-
-			M5_LOGD("|A| = %f", now_ACC);
-			M5_LOGD("steps %d ", getStepsTaken());
-			M5_LOGD(" ");
-
-			max_ACC = 0.0;
-			min_ACC = 0.0;
-		}
-#endif
 
 		//----------------------------------------------------------
 
@@ -1043,112 +962,5 @@ IMU_loop:
 }
 
 
-#if 0
-			/*			
-						// Z-axis accel (m/s^2)
-						Serial.printf("%f\t%f\t%f\n", data.accel.x * 100.,
-													  data.accel.y * 100.,
-													  data.accel.z * 100.);
-						Serial.print(" ");
-						Serial.print(data.gyro.x);	// X-axis gyroscope (deg/s)
-						Serial.print(" ");
-						Serial.print(data.gyro.y);	// Y-axis gyroscope (deg/s)
-						Serial.print(" ");
-						Serial.print(data.gyro.z);	// Z-axis gyroscope (deg/s)
-						Serial.print(" ");
-			*/			
-			
-			#if 1
-			Serial.printf("%d, %d, %d, %d, %d, %d\n", (int) (10. * data.accel.x), 
-										  (int) (10. * data.accel.y),
-										  (int) (10. * data.accel.z),
-										  (int) (10. * MAG_ACC),
-										  (int) (10. * peakAnyPlus),
-										  (int) (10. * peakAnyMinus)  );
-			#else
-
-			Serial.printf("ACC-x:%d\n", (int) (10. * data.accel.x));
-			Serial.printf("ACC-y:%d\n", (int) (10. * data.accel.y));
-			Serial.printf("ACC-z:%d\n", (int) (10. * data.accel.z));
-			Serial.printf("ACC-hi:%d\n", (int) (10. * peakAnyPlus));
-			Serial.printf("ACC-lo:%d\n", (int) (10. * peakAnyMinus));
-			#endif
-			
-			/*
-			timbit = micros();
-			//float uSperSample = (float)REPORT_AFTER_nSAMPLES / (float) (timbit - stopWatch);
-			float uSperSample = (float) (REPORT_AFTER_nSAMPLES * 1000000)/(float) (timbit - stopWatch);
-            
-			Serial.printf("uS\/sample = %.1f\n", uSperSample);
-			stopWatch = timbit;
-
-			answer: 180uS per sample
-			*/
-			
-			// accel +-100
-			M5_LOGD("ax:%+9.7f  ay:%+9.7f  az:%+9.7f", data.accel.x, data.accel.y, data.accel.z);
-
-			// gyro +- 1.0000
-			M5_LOGD("gx:%+9.7f  gy:%+9.7f  gz:%+9.7f", data.gyro.x , data.gyro.y , data.gyro.z );
-
-			//M5_LOGD("mx:%+9.7f  my:%+9.7f  mz:%+9.7f", data.mag.x  , data.mag.y  , data.mag.z  );
-
-			M5_LOGD("|G| = %f", MAG_GYRO);
-			M5_LOGD("%.1f < |A| < %.1f",  min_ACC, max_ACC);
-			M5_LOGD("azim = %.1f  elev = %.1f ", azim, elev);
-
-
-//-------------------------------------------------------------
-//-------------------------------------------------------------
-double azimuth(Point3D target)
-{
-    // Define origin and target positions
-    Point3D origin = {0.0, 0.0, 0.0};
-    //Point3D target = {10.0, 10.0, 5.0}; // Northeast quadrant
-
-    // Compute differences
-    double dx = target.x - origin.x;
-    double dy = target.y - origin.y;
-
-    // Calculate azimuth (Clockwise from North)
-    double azimuth_rad = atan2(dx, dy);
-    double azimuth_deg = azimuth_rad * (180.0 / M_PI);
-
-    // Keep angle positive between 0 and 360 degrees
-    //if (azimuth_deg < 0) {
-    //    azimuth_deg += 360.0;
-    //}
-
-    //printf("Target Vector: dx=%.2f, dy=%.2f\n", dx, dy);
-    //printf("Calculated Azimuth: %.2f degrees\n", azimuth_deg);
-
-    return azimuth_deg;
-}
-
-//-------------------------------------------------------------
-
-double elevation(Point3D target) {
-    // Define 3D Cartesian coordinates (X, Y, Z)
-    double x = target.x;
-    double y = target.y;
-    double z = target.z; // This is your absolute height/elevation
-
-    // 1. Absolute vertical elevation
-    double elevation_value = z;
-
-    // 2. Horizontal distance from the origin in the X-Y plane
-    double horizontal_dist = sqrt((x * x) + (y * y));
-
-    // 3. Compute elevation angle (in radians) using atan2 to avoid division-by-zero errors
-    double elevation_angle_rad = atan2(elevation_value, horizontal_dist);
-
-    // 4. Convert the angle from radians to degrees
-    double elevation_angle_deg = elevation_angle_rad * (180.0 / M_PI);
-
-	return elevation_angle_deg;
-}
-
-			
-#endif			
 
 
