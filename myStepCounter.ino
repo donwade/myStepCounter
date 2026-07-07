@@ -236,8 +236,9 @@ void drawImuStats(const window_t& r, const m5::imu_data_t& imuDirect)
 
 //---------------------------------------------------------------------
 
-void startCalibration(uint32_t waitS)
+void startCalibration(void)
 {
+	uint8_t waitS = 15;
  	Serial.printf("start calibration ... depth = %d of 255\n", calDepth);
  	
     M5.Imu.setCalibration(calDepth, 
@@ -417,13 +418,14 @@ uint32_t hSmallTextArea;
 File hFile;
 
 //-----------------------------------------------------
-// do not close. this is not your job.
+
+// ****do not close. this is not your job.
 // return number of bytes in flight recorder .
 
 uint32_t flushRecorder(void)
 {
 	uint32_t ret = 0;
-	
+
 	if (hFile)
 	{
 		if (flightIndex) // some still in the pipe.
@@ -439,6 +441,10 @@ uint32_t flushRecorder(void)
 		bytesNotSavedYet  = 0;
 		flightIndex = 0;
 
+	}
+	else
+	{
+		Serial.println("why did I fail");		
 	}
 	return ret;
 }
@@ -458,33 +464,69 @@ void powerdownSave(void)
 	// flight recorder closed. 
 	hFile.close();
 	
-	listDir(SD, "/", 2);
-	Serial.println("bye");
-	delay(1000);
-}
-
-
-// only call on powerup.
-void rotateLogs(void)
-{
+	rotateLogs();
 	
 	listDir(SD, "/", 2);
+	Serial.println("bye");
+	delay(2000);
+}
 
+//-----------------------------------------------------
+
+// used for testing rotation and resume.
+void quickSave(void)
+{
 #if PLAYBACK
 	Serial.printf("%s nothing to do in PLAYBACK\n", __FUNCTION__);
 	return;
 #endif
-	// hold 5 versions on SD card if flight recorder was written.
-	deleteFile(SD, BACKUP5);
-	renameFile(SD, BACKUP4, BACKUP5);
-	renameFile(SD, BACKUP3, BACKUP4);
-	renameFile(SD, BACKUP2, BACKUP3);
-	renameFile(SD, BACKUP1, BACKUP2);
-	renameFile(SD, FLIGHT_LOG, BACKUP1);
-
-	listDir(SD, "/", 2);
-	delay(3000);
+	flushRecorder();
 	
+	Serial.println(FG_CYAN "closing all files before shutdown" FG_DONE);
+
+	// flight recorder closed. 
+	hFile.close();
+	rotateLogs();
+	
+	listDir(SD, "/", 2);
+
+	// this is not a power down.
+	// reopen the flight recorder.
+	
+	hFile = SD.open(FLIGHT_LOG, FILE_WRITE);
+	Serial.println ("opening for write " FLIGHT_LOG);
+	bytesInFlightRecorder = 0;
+
+	// return and resume logging into a new flight log
+}
+
+
+void rotateLogs(void)
+{
+		listDir(SD, "/", 2);
+
+#if PLAYBACK
+		Serial.printf("%s nothing to do in PLAYBACK\n", __FUNCTION__);
+		return;
+#endif
+
+	bool bExist = SD.exists(FLIGHT_LOG);
+	if (bExist)
+	{
+		// hold 5 versions on SD card if flight recorder was written.
+		deleteFile(SD, BACKUP5);
+		renameFile(SD, BACKUP4, BACKUP5);
+		renameFile(SD, BACKUP3, BACKUP4);
+		renameFile(SD, BACKUP2, BACKUP3);
+		renameFile(SD, BACKUP1, BACKUP2);
+		renameFile(SD, FLIGHT_LOG, BACKUP1);
+	
+		listDir(SD, "/", 2);
+	}
+	else
+	{
+		Serial.println (FLIGHT_LOG " does not exist. No rotate");
+	}
 }
 
 
@@ -655,13 +697,16 @@ void setup(void)
 	deleteFile(SD, "/bench.dat");
 
 	rotateLogs();
+
+	
+	hFile = SD.open(FLIGHT_LOG, FILE_WRITE);
+	Serial.println ("opening for write " FLIGHT_LOG);
+	bytesInFlightRecorder = 0;
 	
 	setLongPressCB(powerdownSave);
 
-	//setShortPressCB(rotateLogs);
-	
-	startCalibration(15); // only on record, no point on playback
-	
+	setShortPressCB(startCalibration);
+
  #endif
 
 
@@ -834,7 +879,7 @@ IMU_loop:
 
 		if (keepRecordingCtr)
 		{
-			Serial.printf("%d %8.3f %8.3f\n", bArmed, deltaACC, velocity);
+////		Serial.printf("%d %8.3f %8.3f\n", bArmed, deltaACC, velocity);
 		}
 #endif
 
