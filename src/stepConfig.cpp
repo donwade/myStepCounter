@@ -247,9 +247,9 @@ void writeFactoryNv(bool bQuiet)
 		SCnum2physical(stepRegister, page,index);
 		sprintf(cKey, "SC-%d", stepRegister);
 
-		//log_w("reading ... key %s does %s exist", cKey, !myNV.isKey(cKey) ? "NOT":"");
+		//log_d("reading ... key %s does %s exist", cKey, !myNV.isKey(cKey) ? "NOT":"");
 		//uKeyRead = myNv.getUShort(cKey, 0);
-		//log_w("read of %s finds %d", cKey, uKeyRead);
+		//log_d("read of %s finds %d", cKey, uKeyRead);
 		
 		scWriteVal = M5.Imu.read16(index, scWriteVal, 1);
 
@@ -337,7 +337,7 @@ bool restoreFromFactoryNv(bool bQuiet)
 		if (myNV.isKey(cKey))
 		{
 			uKeyRead = myNV.getUShort(cKey, scWriteVal); // if key doesn't exist, force value.
-			log_w("[SC=%d]	page %02d index 0x%X <= %6d (NV)", 
+			log_d("[SC=%d]	page %02d index 0x%X <= %6d (NV)", 
 				  stepRegister, page, index, uKeyRead);
 			M5.Imu.write16(index , uKeyRead, 1);
 		}
@@ -362,17 +362,17 @@ void load_factoryDefaultsFromROM(void)
 	uint8_t page;
 	uint8_t index;
 
-	log_w("%s: setting factory SC defaults -----------------------", __FUNCTION__);
+	log_d("%s: setting factory SC defaults -----------------------", __FUNCTION__);
 
 	for (int j = 0; j < ENTRIES(cmdSetup); j++)
 	{
 		SCnum2physical(cmdSetup[j].stepCtrRegNum, page,index);
-		log_w("[SC=%d]  page %02d index 0x%X <= %6d (ROM)", 
+		log_d("[SC=%d]  page %02d index 0x%X <= %6d (ROM)", 
 			  cmdSetup[j].stepCtrRegNum, page, index, cmdSetup[j].value);
 		M5.Imu.write16(index , cmdSetup[j].value, 1);
  	}
 	
- 	log_w("factory step counter defaults done -------------------");
+ 	log_d("factory step counter defaults done -------------------");
 
  	
 }

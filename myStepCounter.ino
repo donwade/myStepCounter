@@ -16,6 +16,13 @@
 
 #define LINE Serial.printf("%s:%d \n", __FUNCTION__, __LINE__);
 
+#define CONTINUOUS  1
+#define RECORDING 	1
+#define PLAYBACK  	0
+#define LIVE        0
+
+#define DEFAULT_VOLUME 80
+#define QUIET_VOLUME   30
 
 #define FLIGHT_LOG "/FLIGHT.LOG"
 #define BACKUP1 	 "/DATA1.BKU"
@@ -24,12 +31,14 @@
 #define BACKUP4 	 "/DATA4.BKU"
 #define BACKUP5 	 "/DATA5.BKU"
 
-#define FLIGHT_LEN 4000
+#define FLIGHT_LEN 2800
 
 typedef struct {
 	bool bArmed;
 	float deltaACC;
-	float velocity;
+	float iVelocity;
+	float lpVelocity;
+	float aVelocity;
 } oneEntry;
 
 
@@ -245,7 +254,7 @@ void startCalibration(void)
     					  calDepth, 
     					  calDepth);
 
-	M5.Speaker.setVolume(30);
+	M5.Speaker.setVolume(QUIET_VOLUME);
 
 	for (int i= 0; i < waitS; i++)
 	{
@@ -264,11 +273,11 @@ void startCalibration(void)
 
 	M5.Imu.saveOffsetToNVS();
 
-	M5.Speaker.setVolume(80);
 	M5.Speaker.tone(1000, 100);
  	delay(500);
 	M5.Speaker.tone(700, 100);
-	M5.Speaker.setVolume(30);
+
+	M5.Speaker.setVolume(DEFAULT_VOLUME);
  	
  	Serial.println("cal ended");
  	delay(1000);
@@ -410,11 +419,6 @@ uint32_t  myRefreshString(window_t &window, uint32_t handle, char *msg )
 uint32_t hLargeTextArea; 
 uint32_t hSmallTextArea;
 
-#define CONTINUOUS  1
-#define RECORDING 	1
-#define PLAYBACK  	0
-#define LIVE        0
-
 File hFile;
 
 //-----------------------------------------------------
@@ -510,7 +514,7 @@ void rotateLogs(void)
 		return;
 #endif
 
-	bool bExist = SD.exists(FLIGHT_LOG);
+	int bExist = SD.exists(FLIGHT_LOG);
 	if (bExist)
 	{
 		// hold 5 versions on SD card if flight recorder was written.
@@ -542,14 +546,39 @@ void setup(void)
 	esp_log_level_set("wifi", ESP_LOG_WARN);	// enable WARN logs from WiFi stack
 	esp_log_level_set("dhcpc", ESP_LOG_INFO);	// enable INFO logs from DHCP client
 
-    //auto cfg = M5.config();
-    m5::M5Unified::config_t cfg = M5.config();
+#if 0
+	{
+	
+		m5::M5Unified::config_t cfg = M5.config();
+	
+		cfg.internal_spk = true;
+	
+		M5.begin(cfg);
+		M5.Speaker.begin();
+	
+		if (!Serial)
+			Serial.begin(115200);
+	
+		M5.Power.setExtOutput(true);	  // enable external bus
+	
+		// confusing. this sets font for background display
+		M5.Lcd.setTextFont(DEFAULT_FONT);
+	
+		// confusing. this sets font for buttons
+		M5.Lcd.setFont(WIDGET_FONT);
 
-    // If you want to use external IMU, write this
-	//cfg.external_imu = true;
-
-    M5.begin(cfg);
-	Serial.begin(115200);
+		M5.Speaker.setVolume(100);		// Set max volume
+		// M5.Speaker.tone(2000, 100);	// no a reboot loop is so annoying
+	
+		Serial.printf("**** _setup_M5 does not do SD.begin() anymore\n");
+		Serial.printf("call _setup_SD AFTER all spi devices claim their access\n");
+	
+		//_setup_ota();
+		_setup_RTC();			  //setup_RTC calls setup OTA
+		//_setup_button();
+	
+	}
+#endif
 
 	_setup_M5();
 
@@ -612,8 +641,6 @@ void setup(void)
     }
 
 	M5_LOGW("physical display is %d w x %d h\n", displayWidth, displayHeight);
-
-    _setup_RTC();
 
     int32_t graph_area_h = numSensorsInIMU * numItemsPerSensor * BAR_THICK;
     int32_t text_area_h = displayHeight - graph_area_h;
@@ -683,12 +710,20 @@ void setup(void)
 	
 	set_factoryDefaults();
 
-	M5.Speaker.setVolume(20);
+
+	for (int loud = 0; loud < 255; loud += 255/4)
+	{
+		M5.Speaker.setVolume(loud);
+ 		M5.Speaker.tone(1500, 50);
+		Serial.printf("vol = %d\n", loud);
+		delay(500);
+	}
+
 
 #if PLAYBACK
 
-	hFile = SD.open(FLIGHT_LOG, FILE_READ);
-	Serial.printf(FG_YELLOW "MODE : Playback  FILE=%s\n" FG_DONE, FLIGHT_LOG);
+	hFile = SD.open(BACKUP1, FILE_READ);
+	Serial.printf(FG_YELLOW "MODE : Playback  FILE=%s\n" FG_DONE, BACKUP1);
 	freadOneBlock();
 	
 #endif
@@ -718,7 +753,7 @@ static float last_ACC = 0.0;
 
 
 #define HIST_LEN 300
-static float historyMag[HIST_LEN];
+static float hVelocity[HIST_LEN];
 static int historyIndex = 0;
 
 //-----------------------------------------------------
@@ -744,6 +779,8 @@ uint32_t freadOneBlock()
 	currentReadRecordNum = 0;
 	return totalNumRecordsLoaded;
 }
+//-----------------------------------------------------
+
 bool fgetLine(oneEntry &input)
 {
 	if (currentReadRecordNum == totalNumRecordsLoaded)
@@ -757,7 +794,6 @@ bool fgetLine(oneEntry &input)
 	input = flightRecorder[currentReadRecordNum++];
 	return true;
 }
-//-----------------------------------------------------
 //-----------------------------------------------------
 bool freadLine(char *dest, uint32_t len)
 {
@@ -777,7 +813,6 @@ bool freadLine(char *dest, uint32_t len)
 
 void loop(void)
 {
-    static uint32_t imuNumReads = 0;
     static uint32_t prev_sec = 0;
 	static uint32_t lastNumSteps;
 	static uint16_t lastAction = -1;
@@ -793,16 +828,18 @@ void loop(void)
 	static float peakMagMinus =  99999;
 
 	bool bDecide = false;
+	float lpVelocity;
+	
 	
 	//readPowerButton();
 	loop_onPwrDn();
 	
-	uint32_t stepsNow = getStepsTaken();
+	static uint32_t stepsNow;
 	
 	char msg[40];
 	float now_ACC;
 	
-    static float velocity = 0.0;
+    static float iVelocity = 0.0;
 
     // if accel below X keep recording next N samples
     #define KEEP_mpsS 15   // meters per second per second
@@ -858,50 +895,80 @@ IMU_loop:
 		float deltaACC = now_ACC - last_ACC;
 		
 		last_ACC = now_ACC;
+
+
 		
-		// velocity will always be positive because we cannot determine direction
+		// iVelocity will always be positive because we cannot determine direction
 		// from an absolute accel value.
 
 		// sometimes it goes a tenth of a point below zero. 
-		velocity += deltaACC; // dont use time as per integration, doesnt work;
+		iVelocity += deltaACC; // dont use time as per integration, doesnt work;
 
-		static bool bArmed;
 
-		if (!bArmed  && velocity > 25)
+        // time in seconds please. is it 5000uS per sample
+        lpVelocity = run_LP(iVelocity, 5000./1000000. , 1); // 1 hz lowpass
+
+
+		// rolling history of iVelocity
+		memcpy (&hVelocity[0], &hVelocity[1], (HIST_LEN) * sizeof(hVelocity[0]));
+		hVelocity[HIST_LEN-1] = iVelocity;
+
+		float aVelocity =0.0;
+		for (int x = 0; x < HIST_LEN; x++)
 		{
-			bArmed = true;
+			aVelocity += hVelocity[x];
+		}
+		aVelocity /= (float) HIST_LEN;
+
+
+		#define HYSTERISIS 7.0
+		#define DEBOUNCEms 300
+		
+		static uint8_t bArmed;
+		static uint32_t delayDisarm;
+		static uint32_t delayArm;
+		
+		// is low pass above or below slowAvg.
+
+		// keep tone length same for up and down
+		if ( (millis() > delayArm) && !bArmed  && lpVelocity > aVelocity + HYSTERISIS )
+		{
+			stepsNow++;
+			bArmed = 1;
+			M5.Speaker.tone(1000, 100);
+
+			// now armed, but wont accept a de-arm for at least DEBOUNCEms
+			delayDisarm = millis() + DEBOUNCEms;
 		}
 
-		if (bArmed && velocity < 10)
+		// watch for negative num.
+		if ((millis() > delayDisarm) && bArmed && lpVelocity < max(aVelocity - HYSTERISIS, 2.0) )
 		{
-			bArmed = false;
+			bArmed = 0;
+			delayArm = millis() + DEBOUNCEms;
+
+			// don't play this beep unless debugging debouce
+			// M5.Speaker.tone(800, 100); 
 		}
 
-		if (keepRecordingCtr)
-		{
-////		Serial.printf("%d %8.3f %8.3f\n", bArmed, deltaACC, velocity);
-		}
 #endif
 
 #if PLAYBACK
 	oneEntry lineInput;
+	float aVelocity;
 	
 	if ( fgetLine(lineInput)) 
 	{
-
-
 		now_ACC = lineInput.deltaACC;
-		velocity = lineInput.velocity;
+		iVelocity = lineInput.iVelocity;
 		bDecide = lineInput.bArmed;
-
-		Serial.printf("%5d %d %8.3f %8.3f \n", ++lineCtr, bDecide, now_ACC, velocity);
+		lpVelocity = lineInput.lpVelocity;
+		aVelocity = lineInput.aVelocity;
+		
+		Serial.printf("%d %8.3f %8.3f %8.3f %8.3f\n", 
+					bDecide * 20, now_ACC, iVelocity, lpVelocity, aVelocity);
     	
 #endif
-
-        float lpValACC;
-
-        // time in seconds please. is it 5000uS per sample
-        lpValACC = run_LP(now_ACC, 5000./1000000. , 1); // 1 hz lowpass
 
 #if LIVE
         oldTime = micros();
@@ -909,31 +976,35 @@ IMU_loop:
 #endif
 
 
-		// rolling history
-		memcpy (&historyMag[0], &historyMag[1], (HIST_LEN) * sizeof(historyMag[0]));
-		
-		  historyMag[HIST_LEN-1] = now_ACC;
-
 #if RECORDING
-
 		if (keepRecordingCtr)
 		{
+			Serial.printf("%d %8.3f %8.3f %8.3f %8.3f\n", bArmed, deltaACC, iVelocity, lpVelocity, aVelocity);
+			
 			keepRecordingCtr--;
 			
 			flightRecorder[flightIndex].bArmed = bArmed;
 			flightRecorder[flightIndex].deltaACC = deltaACC;
-			flightRecorder[flightIndex++].velocity = velocity;
-			
+			flightRecorder[flightIndex].lpVelocity = lpVelocity;
+			flightRecorder[flightIndex].aVelocity = aVelocity;
+			flightRecorder[flightIndex].iVelocity = iVelocity;
+			flightIndex++;
 			
 			if (flightIndex == FLIGHT_LEN)
 			{
 				char msg[70];
 				uint32_t k;
-				M5.Speaker.setVolume(50);
 
 				Serial.println("dump flight recorder to SD"); 
 
-				M5.Speaker.tone(2000, 50); 
+
+				// NO NO NO
+				// DO NOT PLAY A TONE NEAR A SD WRITE.
+				// Doing so, causes the speaker to permanently cut volume 
+				// and setVolume is inoperative.
+				
+				/////M5.Speaker.setVolume(QUIET_VOLUME);
+				/////M5.Speaker.tone(2000, 50); 
 				
 				bytesNotSavedYet += hFile.write((uint8_t *) flightRecorder, sizeof(flightRecorder));
 				bytesInFlightRecorder += sizeof(flightRecorder);
@@ -945,7 +1016,7 @@ IMU_loop:
 				
 				flightIndex = 0;
 
-				M5.Speaker.setVolume(20);
+				/////M5.Speaker.setVolume(DEFAULT_VOLUME);
 				
 			}
 		}
@@ -955,7 +1026,7 @@ IMU_loop:
 
 		//----------------------------------------------------------
 
-		// force display update ever 250mS
+		// force display small area update every 250mS
 		static uint32_t dispTime;
 		if (dispTime < millis())
 		{
@@ -964,15 +1035,15 @@ IMU_loop:
 			myRefreshString(textWindow, hSmallTextArea, msg);
         }
 		
-		
+		// update steps in large window.
 		if (lastNumSteps != stepsNow)
 		{
 			lastNumSteps = stepsNow;
-			//sprintf(msg, "bat=%d%%% %s %d", M5.Power.getBatteryVoltage()*100/4170, activity2string(lastAction), stepsNow);
-			sprintf(msg, "%d=%d%% %s %d", M5.Power.getBatteryVoltage(), M5.Power.getBatteryVoltage()*100/4170, activity2string(lastAction), stepsNow);
-			myRefreshString(textWindow, hSmallTextArea, msg);
+			sprintf(msg, "%d", stepsNow);
+			myRefreshString(textWindow,hLargeTextArea, msg); 
 		}
 
+/*
 		uint16_t actionNow = getActivity();
 		if (lastAction != actionNow)
 		{
@@ -986,14 +1057,15 @@ IMU_loop:
 
 			lastAction = actionNow;
 			//sprintf(msg, "bat=%d%% %s %d", M5.Power.getBatteryVoltage()*100/4170, activity2string(actionNow), lastNumSteps);
+			
 			sprintf(msg, "%d=%d%% %s %d", M5.Power.getBatteryVoltage(), M5.Power.getBatteryVoltage()*100/4170, activity2string(lastAction), stepsNow);
 			myRefreshString(textWindow, hSmallTextArea, msg);
 
 			sprintf(msg, "%d", keptSteps);
 			myRefreshString(textWindow,hLargeTextArea, msg); 
 		}
-	
-        ++imuNumReads;
+*/
+
     }
 
 #if PLAYBACK
