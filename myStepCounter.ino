@@ -17,8 +17,8 @@
 #define LINE Serial.printf("%s:%d \n", __FUNCTION__, __LINE__);
 
 #define CONTINUOUS  1
-#define RECORDING 	1
-#define PLAYBACK  	0
+#define RECORDING 	0
+#define PLAYBACK  	1
 #define LIVE        0
 
 #define DEFAULT_VOLUME 80
@@ -31,14 +31,17 @@
 #define BACKUP4 	 "/DATA4.BKU"
 #define BACKUP5 	 "/DATA5.BKU"
 
-#define FLIGHT_LEN 2800
+#define FLIGHT_LEN 2000
 
 typedef struct {
-	bool bArmed;
-	float deltaACC;
-	float iVelocity;
-	float lpVelocity;
-	float aVelocity;
+	uint16_t	delayCount;
+	float		deltaACC;
+	float		iVelocity;
+	float		lpVelocity;
+	float		aVelocity;
+	char 		state;
+	uint32_t 	stepsNow;
+	
 } oneEntry;
 
 
@@ -921,52 +924,100 @@ IMU_loop:
 		aVelocity /= (float) HIST_LEN;
 
 
-		#define HYSTERISIS 7.0
-		#define DEBOUNCEms 300
+		#define HYSTERISIS 15.0
+		#define DEBOUNCEms 200
+
+		static int8_t bArmed;
+		static int32_t delayCount;
+	
+		static char state = '?';
 		
-		static uint8_t bArmed;
-		static uint32_t delayDisarm;
-		static uint32_t delayArm;
-		
-		// is low pass above or below slowAvg.
-
-		// keep tone length same for up and down
-		if ( (millis() > delayArm) && !bArmed  && lpVelocity > aVelocity + HYSTERISIS )
+		static uint32_t msTicker;
+	
+		//if ( micros() > msTicker)
 		{
-			stepsNow++;
-			bArmed = 1;
-			M5.Speaker.tone(1000, 100);
+			msTicker = micros() + 100;
 
-			// now armed, but wont accept a de-arm for at least DEBOUNCEms
-			delayDisarm = millis() + DEBOUNCEms;
-		}
+			if (delayCount > 0) delayCount--;
+			if (delayCount < 0) delayCount++;
 
-		// watch for negative num.
-		if ((millis() > delayDisarm) && bArmed && lpVelocity < max(aVelocity - HYSTERISIS, 2.0) )
-		{
-			bArmed = 0;
-			delayArm = millis() + DEBOUNCEms;
+			// dont inc step on zero. Both up and down cross into it.
+			if (delayCount == 1) stepsNow++;
 
-			// don't play this beep unless debugging debouce
-			// M5.Speaker.tone(800, 100); 
-		}
+			if (bArmed && !delayCount)
+			{
+				state = '-';
+				bArmed = false;
+				//M5.Speaker.tone(1000, 30);
+			}
 
+			if (!bArmed)
+			{
+				if (lpVelocity > aVelocity + HYSTERISIS )
+				{
+					state = 'U';
+					delayCount = DEBOUNCEms;
+					bArmed = true;
+				}
+				else if (lpVelocity < aVelocity - HYSTERISIS ) 
+				{
+					state = 'D';
+					delayCount = -DEBOUNCEms;
+					bArmed = true;
+				}
+			}
+			else
+			{
+				// is armed but will it retrigger?
+				if (delayCount > 0)
+				{
+				
+					if (delayCount > 0 && lpVelocity > aVelocity + HYSTERISIS )
+					{
+						state = 'U';
+						delayCount = DEBOUNCEms /2;
+						bArmed = true;
+					}
+					else
+					{
+						state = 'u';
+					}
+				}
+				else if (delayCount < 0 )
+				{
+					if (lpVelocity < aVelocity - HYSTERISIS ) 
+					{
+						state = 'D';
+						delayCount = -DEBOUNCEms /2;
+						bArmed = true;
+					}
+					else
+					{
+						state = 'd';
+					}
+				}
+				
+			}
+ 		}
 #endif
 
 #if PLAYBACK
 	oneEntry lineInput;
 	float aVelocity;
+	char state;
 	
 	if ( fgetLine(lineInput)) 
 	{
 		now_ACC = lineInput.deltaACC;
 		iVelocity = lineInput.iVelocity;
-		bDecide = lineInput.bArmed;
+		bDecide = lineInput.delayCount;
 		lpVelocity = lineInput.lpVelocity;
 		aVelocity = lineInput.aVelocity;
+		state = lineInput.state;
+		stepsNow = lineInput.stepsNow;
 		
-		Serial.printf("%d %8.3f %8.3f %8.3f %8.3f\n", 
-					bDecide * 20, now_ACC, iVelocity, lpVelocity, aVelocity);
+		Serial.printf("%d %8.3f %8.3f %8.3f %8.3f %c %d\n", 
+					bDecide * 20, now_ACC, iVelocity, lpVelocity, aVelocity, state, stepsNow);
     	
 #endif
 
@@ -979,24 +1030,24 @@ IMU_loop:
 #if RECORDING
 		if (keepRecordingCtr)
 		{
-			Serial.printf("%d %8.3f %8.3f %8.3f %8.3f\n", bArmed, deltaACC, iVelocity, lpVelocity, aVelocity);
+			Serial.printf("%04d %8.3f %8.3f %8.3f %8.3f %c %d\n", 
+				delayCount, deltaACC, iVelocity, lpVelocity, aVelocity, state, stepsNow);
 			
 			keepRecordingCtr--;
 			
-			flightRecorder[flightIndex].bArmed = bArmed;
+			flightRecorder[flightIndex].delayCount = delayCount;
 			flightRecorder[flightIndex].deltaACC = deltaACC;
 			flightRecorder[flightIndex].lpVelocity = lpVelocity;
 			flightRecorder[flightIndex].aVelocity = aVelocity;
 			flightRecorder[flightIndex].iVelocity = iVelocity;
+			flightRecorder[flightIndex].state = state;
+			flightRecorder[flightIndex].stepsNow = stepsNow;
 			flightIndex++;
 			
 			if (flightIndex == FLIGHT_LEN)
 			{
 				char msg[70];
 				uint32_t k;
-
-				Serial.println("dump flight recorder to SD"); 
-
 
 				// NO NO NO
 				// DO NOT PLAY A TONE NEAR A SD WRITE.
@@ -1012,7 +1063,7 @@ IMU_loop:
 				// do I have to worry about packing?
 				assert( sizeof(flightRecorder) == (FLIGHT_LEN * sizeof(oneEntry)));
 				
-				Serial.printf("flight recorder size = %d \n\n", bytesInFlightRecorder);
+ 				//Serial.printf("dump recorder size = %d \n\n", bytesInFlightRecorder);
 				
 				flightIndex = 0;
 
